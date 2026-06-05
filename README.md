@@ -1,12 +1,10 @@
-# 🛠️ ai-desk-tools (LinkChum MCP Server)
+# 🛠️ ai-desk-tools (MCP Server)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP-green.svg)](https://modelcontextprotocol.io/)
 
 **ai-desk-tools** คือเซิร์ฟเวอร์ Model Context Protocol (MCP) ที่พัฒนาด้วย Python FastMCP ออกแบบมาเพื่อเป็นเครื่องมือเสริมพลังให้กับโมดูล AI/LLM ในการควบคุมและเข้าถึงข้อมูลภายในคอมพิวเตอร์ส่วนบุคคล (Desktop) ทั้งการค้นหาเว็บ การรันคำสั่ง Terminal การจัดการไฟล์ และการควบคุมระบบ GUI
-
-เซิร์ฟเวอร์นี้เป็นส่วนหนึ่งของระบบสนับสนุนโครงการ **LinkChum (ลิงก์ชุม)**
 
 ---
 
