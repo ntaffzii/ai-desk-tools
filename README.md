@@ -20,7 +20,8 @@
 ### 2. 🌐 Web Tools (การสืบค้นข้อมูลอินเทอร์เน็ตระดับมืออาชีพ)
 - **`search_web`**: ค้นหาข้อมูลเรียลไทม์ผ่าน DuckDuckGo API (คืนค่าเป็น Title, URL, และ Snippet จริง) มีระบบ Fallback ไปยังฐานข้อมูลวิชาการ Crossref
 - **`search_web_news`**: ค้นหาข่าวสารล่าสุด ระบุแหล่งข่าว วันที่เผยแพร่ และตรวจสอบความน่าเชื่อถือผ่าน Trusted Sources list
-- **`browse_webpage`**: ดึงเนื้อหาหน้าเว็บและแปลงให้อยู่ในรูปแบบ Markdown ที่อ่านง่าย รักษาโครงสร้าง Headings, Links, และ Lists
+- **`browse_webpage`**: ดึงเนื้อหาหน้าเว็บและแปลงให้อยู่ในรูปแบบ Markdown ที่อ่านง่าย รักษาโครงสร้าง Headings, Links, และ Lists (เหมาะกับเว็บแบบ Static HTML)
+- **`browse_dynamic_webpage`**: ดึงเนื้อหาหน้าเว็บที่มีการโหลดข้อมูลผ่าน JavaScript (เช่น SPA, React, Vue, AJAX) โดยจำลองรันผ่านเบราว์เซอร์จริง (Playwright Headless Chromium) และรองรับการรอ CSS Selector จนกว่าจะโหลดเสร็จ
 
 ### 3. 💻 System & OS Control (การสั่งการระบบและคำสั่ง)
 - **`get_system_drives`**: ดึงรายชื่อ Drive ที่มีทั้งหมดในระบบ (เช่น `C:\`, `D:\`, `I:\`) เพื่อเป็นข้อมูลตั้งต้นให้ AI เริ่มต้นการสแกนระบบ
@@ -58,6 +59,9 @@ source .venv/bin/activate
 
 # ติดตั้งไลบรารีทั้งหมด
 pip install -r requirements.txt
+
+# ติดตั้งเบราว์เซอร์สำหรับ Playwright (ต้องทำอย่างน้อย 1 ครั้งหลังติดตั้งแพ็กเกจ)
+playwright install chromium
 ```
 
 ---

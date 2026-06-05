@@ -27,6 +27,130 @@ def _load_trusted_sources() -> set:
         return set()
 
 
+def _html_to_markdown(html_content: str, url: str) -> str:
+    """
+    แปลง HTML content เป็น Markdown-like text
+    """
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    # ============================
+    # 1. ดึง Metadata จาก <head>
+    # ============================
+    title_tag = soup.find("title")
+    page_title = title_tag.get_text().strip() if title_tag else "ไม่มีชื่อเรื่อง"
+
+    desc_tag = soup.find("meta", attrs={"name": "description"})
+    if not desc_tag:
+        desc_tag = soup.find("meta", attrs={"property": "og:description"})
+    page_desc = desc_tag.get("content", "").strip() if desc_tag else ""
+
+    # ============================
+    # 2. เลือก Content Body หลัก
+    # ============================
+    content_body = (
+        soup.find("article")
+        or soup.find("main")
+        or soup.find("div", {"role": "main"})
+        or soup.find("div", class_="content")
+        or soup.find("div", class_="post-content")
+    )
+    source = content_body if content_body else soup.body or soup
+
+    # ============================
+    # 3. ลบแท็กขยะ
+    # ============================
+    for element in source(["script", "style", "nav", "footer", "header", "aside",
+                            "form", "iframe", "noscript", "svg", "button",
+                            "input", "select", "textarea"]):
+        element.extract()
+
+    # ============================
+    # 4. แปลง HTML → Markdown-like text
+    # ============================
+    # แปลง headings → markdown headings
+    for tag in source.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        level = int(tag.name[1])
+        heading_text = tag.get_text().strip()
+        if heading_text:
+            tag.replace_with(f"\n\n{'#' * level} {heading_text}\n\n")
+
+    # แปลง links → markdown links
+    for a in source.find_all("a", href=True):
+        link_text = a.get_text().strip()
+        href = a.get("href", "")
+        if link_text and href and not href.startswith("#") and not href.startswith("javascript:"):
+            # แปลง relative URL → absolute URL
+            if href.startswith("/"):
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                href = f"{parsed.scheme}://{parsed.netloc}{href}"
+            a.replace_with(f"[{link_text}]({href})")
+
+    # แปลง list items → markdown bullets
+    for li in source.find_all("li"):
+        li_text = li.get_text().strip()
+        if li_text:
+            li.replace_with(f"\n- {li_text}")
+
+    # แปลง <code>/<pre> → markdown code blocks
+    for code in source.find_all("pre"):
+        code_text = code.get_text().strip()
+        if code_text:
+            code.replace_with(f"\n```\n{code_text}\n```\n")
+
+    # แปลง bold/italic
+    for strong in source.find_all(["strong", "b"]):
+        text = strong.get_text().strip()
+        if text:
+            strong.replace_with(f"**{text}**")
+
+    for em in source.find_all(["em", "i"]):
+        text = em.get_text().strip()
+        if text:
+            em.replace_with(f"*{text}*")
+
+    # ============================
+    # 5. สกัด text สุดท้ายและจัดระเบียบ
+    # ============================
+    raw_text = source.get_text()
+
+    # จัดระเบียบบรรทัด: ลดช่องว่างเกิน, ลบบรรทัดว่างซ้ำ
+    lines = []
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            lines.append(stripped)
+        elif lines and lines[-1] != "":
+            lines.append("")  # เก็บ 1 บรรทัดว่างระหว่าง paragraphs
+
+    clean_text = "\n".join(lines)
+
+    # ลบบรรทัดว่างเกิน 2 บรรทัดติดกัน
+    clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
+
+    # ============================
+    # 6. ประกอบผลลัพธ์สุดท้ายพร้อม metadata
+    # ============================
+    max_chars = 35000
+
+    result = f"📄 **{page_title}**\n"
+    result += f"🔗 {url}\n"
+    if page_desc:
+        result += f"📝 {page_desc}\n"
+    result += "---\n\n"
+
+    if len(clean_text) > max_chars:
+        result += clean_text[:max_chars]
+        result += f"\n\n...[⚠️ ตัดที่ {max_chars} ตัวอักษร — เนื้อหาหลักส่วนใหญ่ครบแล้ว]..."
+    else:
+        result += clean_text
+
+    if not clean_text.strip():
+        return "Error: หน้าเว็บนี้ไม่มีเนื้อหาข้อความ หรือหน้าเว็บโหลดข้อมูลด้วย JavaScript (ควรลองใช้ browse_dynamic_webpage)"
+
+    return result
+
+
 def register(mcp):
     """ลงทะเบียน Web Tools เข้ากับ MCP Server"""
 
@@ -143,7 +267,7 @@ def register(mcp):
     @mcp.tool()
     def browse_webpage(url: str) -> str:
         """
-        เข้าถึง URL ของหน้าเว็บเพื่ออ่านเนื้อหาแบบ Markdown ที่มีโครงสร้างชัดเจน
+        เข้าถึง URL ของหน้าเว็บเพื่ออ่านเนื้อหาแบบ Markdown ที่มีโครงสร้างชัดเจน (เหมาะกับเว็บที่เป็น Static HTML)
         ผลลัพธ์จะรักษา headings, links, lists ไว้เพื่อให้ AI เข้าใจเนื้อหาได้ง่ายขึ้น
         ใช้เมื่อต้องการดึงบทความ เอกสาร หรือข้อมูลจากหน้าเว็บมาให้ AI วิเคราะห์
         """
@@ -160,124 +284,7 @@ def register(mcp):
             if response.status_code != 200:
                 return f"Error: ไม่สามารถเข้าถึงหน้าเว็บได้ (HTTP {response.status_code})"
 
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # ============================
-            # 1. ดึง Metadata จาก <head>
-            # ============================
-            title_tag = soup.find("title")
-            page_title = title_tag.get_text().strip() if title_tag else "ไม่มีชื่อเรื่อง"
-
-            desc_tag = soup.find("meta", attrs={"name": "description"})
-            if not desc_tag:
-                desc_tag = soup.find("meta", attrs={"property": "og:description"})
-            page_desc = desc_tag.get("content", "").strip() if desc_tag else ""
-
-            # ============================
-            # 2. เลือก Content Body หลัก
-            # ============================
-            content_body = (
-                soup.find("article")
-                or soup.find("main")
-                or soup.find("div", {"role": "main"})
-                or soup.find("div", class_="content")
-                or soup.find("div", class_="post-content")
-            )
-            source = content_body if content_body else soup.body or soup
-
-            # ============================
-            # 3. ลบแท็กขยะ
-            # ============================
-            for element in source(["script", "style", "nav", "footer", "header", "aside",
-                                    "form", "iframe", "noscript", "svg", "button",
-                                    "input", "select", "textarea"]):
-                element.extract()
-
-            # ============================
-            # 4. แปลง HTML → Markdown-like text
-            # ============================
-            # แปลง headings → markdown headings
-            for tag in source.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
-                level = int(tag.name[1])
-                heading_text = tag.get_text().strip()
-                if heading_text:
-                    tag.replace_with(f"\n\n{'#' * level} {heading_text}\n\n")
-
-            # แปลง links → markdown links
-            for a in source.find_all("a", href=True):
-                link_text = a.get_text().strip()
-                href = a.get("href", "")
-                if link_text and href and not href.startswith("#") and not href.startswith("javascript:"):
-                    # แปลง relative URL → absolute URL
-                    if href.startswith("/"):
-                        from urllib.parse import urlparse
-                        parsed = urlparse(url)
-                        href = f"{parsed.scheme}://{parsed.netloc}{href}"
-                    a.replace_with(f"[{link_text}]({href})")
-
-            # แปลง list items → markdown bullets
-            for li in source.find_all("li"):
-                li_text = li.get_text().strip()
-                if li_text:
-                    li.replace_with(f"\n- {li_text}")
-
-            # แปลง <code>/<pre> → markdown code blocks
-            for code in source.find_all("pre"):
-                code_text = code.get_text().strip()
-                if code_text:
-                    code.replace_with(f"\n```\n{code_text}\n```\n")
-
-            # แปลง bold/italic
-            for strong in source.find_all(["strong", "b"]):
-                text = strong.get_text().strip()
-                if text:
-                    strong.replace_with(f"**{text}**")
-
-            for em in source.find_all(["em", "i"]):
-                text = em.get_text().strip()
-                if text:
-                    em.replace_with(f"*{text}*")
-
-            # ============================
-            # 5. สกัด text สุดท้ายและจัดระเบียบ
-            # ============================
-            raw_text = source.get_text()
-
-            # จัดระเบียบบรรทัด: ลดช่องว่างเกิน, ลบบรรทัดว่างซ้ำ
-            lines = []
-            for line in raw_text.splitlines():
-                stripped = line.strip()
-                if stripped:
-                    lines.append(stripped)
-                elif lines and lines[-1] != "":
-                    lines.append("")  # เก็บ 1 บรรทัดว่างระหว่าง paragraphs
-
-            clean_text = "\n".join(lines)
-
-            # ลบบรรทัดว่างเกิน 2 บรรทัดติดกัน
-            clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
-
-            # ============================
-            # 6. ประกอบผลลัพธ์สุดท้ายพร้อม metadata
-            # ============================
-            max_chars = 35000
-
-            result = f"📄 **{page_title}**\n"
-            result += f"🔗 {url}\n"
-            if page_desc:
-                result += f"📝 {page_desc}\n"
-            result += "---\n\n"
-
-            if len(clean_text) > max_chars:
-                result += clean_text[:max_chars]
-                result += f"\n\n...[⚠️ ตัดที่ {max_chars} ตัวอักษร — เนื้อหาหลักส่วนใหญ่ครบแล้ว]..."
-            else:
-                result += clean_text
-
-            if not clean_text.strip():
-                return "Error: หน้าเว็บนี้ไม่มีเนื้อหาข้อความ หรือเนื้อหาถูกสร้างด้วย JavaScript (ต้องใช้เบราว์เซอร์จริง)"
-
-            return result
+            return _html_to_markdown(response.text, url)
 
         except requests.exceptions.Timeout:
             return f"Error: หน้าเว็บ {url} ใช้เวลาโหลดนานเกินไป (timeout 15 วินาที)"
@@ -285,3 +292,55 @@ def register(mcp):
             return f"Error: ไม่สามารถเชื่อมต่อกับ {url} ได้ (ตรวจสอบ URL หรือการเชื่อมต่ออินเทอร์เน็ต)"
         except Exception as e:
             return f"Error reading webpage: {str(e)}"
+
+    @mcp.tool()
+    async def browse_dynamic_webpage(url: str, wait_selector: str = None, timeout_ms: int = 15000) -> str:
+        """
+        ดึงเนื้อหาเว็บเพจที่มีการโหลดข้อมูลผ่าน JavaScript (Dynamic Web Content เช่น หน้า SPA, หน้าที่มีตารางสินค้าดึงด้วย AJAX)
+        โดยจำลองการรันผ่านระบบบราวเซอร์จริง (Playwright Headless Chromium - Async API)
+        :param url: URL ของเว็บไซต์ที่ต้องการดึงข้อมูล
+        :param wait_selector: CSS Selector ที่ต้องการรอให้โหลดสำเร็จก่อนเริ่มอ่านเนื้อหา (เช่น '#content', '.product-grid')
+        :param timeout_ms: เวลาจำกัดในการโหลดหน้าเว็บและรอ Selector (หน่วยเป็นมิลลิวินาที ค่าเริ่มต้น 15000)
+        """
+        print(f"[Dynamic Browser] Extracting content asynchronously from: {url}")
+
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return "Error: ไม่สามารถนำเข้า playwright ได้ กรุณารัน 'pip install playwright' และ 'playwright install chromium'"
+
+        try:
+            async with async_playwright() as p:
+                # รัน headless chromium
+                browser = await p.chromium.launch(headless=True)
+                
+                # จำลอง User Agent เผื่อโดนบล็อก
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800}
+                )
+                
+                page = await context.new_page()
+                
+                # นำทางไปที่ URL โดยกำหนด timeout
+                await page.goto(url, timeout=timeout_ms)
+                
+                # ถ้าระบุ Selector ให้รอจนกว่าจะแสดงขึ้นมา
+                if wait_selector:
+                    try:
+                        await page.wait_for_selector(wait_selector, timeout=timeout_ms)
+                    except Exception as wait_err:
+                        print(f"[Dynamic Browser] Warning: wait_for_selector '{wait_selector}' timed out: {wait_err}")
+                else:
+                    # ถ้าไม่ได้ระบุ ให้รอเพิ่ม 2 วินาที เผื่อสคริปต์หน้าเว็บหลักโหลดข้อมูล
+                    await page.wait_for_timeout(2000)
+                
+                html_content = await page.content()
+                await browser.close()
+
+            # แปลง HTML ที่ได้เป็น Markdown
+            return _html_to_markdown(html_content, url)
+
+        except Exception as e:
+            return f"Error reading webpage dynamically: {str(e)}"
+
