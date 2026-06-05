@@ -1,0 +1,21 @@
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python Cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE Configs
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Output & Temp Files
+efficiency_report_*.md

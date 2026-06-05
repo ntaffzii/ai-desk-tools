@@ -1,0 +1,26 @@
+{
+    "trusted_news_sources": [
+        "BBC",
+        "BBC News",
+        "Reuters",
+        "AP News",
+        "Associated Press",
+        "The Verge",
+        "TechCrunch",
+        "Ars Technica",
+        "Wired",
+        "Bloomberg",
+        "The Guardian",
+        "CNN",
+        "NPR",
+        "Al Jazeera",
+        "NHK",
+        "ไทยรัฐ",
+        "กรุงเทพธุรกิจ",
+        "มติชน",
+        "The Standard",
+        "Blognone",
+        "thaipbs"
+    ],
+    "_comment": "เพิ่ม/ลบ แหล่งข่าวที่เชื่อถือได้ตามต้องการ — ชื่อจะถูกเทียบแบบ case-insensitive"
+}
