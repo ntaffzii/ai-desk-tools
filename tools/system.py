@@ -131,3 +131,38 @@ def register(mcp):
         except Exception as e:
             return f"เกิดข้อผิดพลาดในการรันคำสั่ง: {str(e)}"
 
+    @mcp.tool()
+    def get_current_datetime() -> str:
+        """
+        ดึงวัน เวลา วันในสัปดาห์ และไทม์โซนปัจจุบันของคอมพิวเตอร์ผู้ใช้
+        ใช้เมื่อ AI ต้องการทราบวันหรือเวลาปัจจุบันเพื่อบันทึกรายงาน อ้างอิง หรือเปรียบเทียบข้อมูลล่าสุด
+        """
+        import datetime
+        
+        now = datetime.datetime.now()
+        local_now = now.astimezone()
+        day_name = now.strftime("%A")
+        
+        thai_days = {
+            "Monday": "วันจันทร์",
+            "Tuesday": "วันอังคาร",
+            "Wednesday": "วันพุธ",
+            "Thursday": "วันพฤหัสบดี",
+            "Friday": "วันศุกร์",
+            "Saturday": "วันเสาร์",
+            "Sunday": "วันอาทิตย์"
+        }
+        thai_day = thai_days.get(day_name, day_name)
+        
+        tz_offset = local_now.strftime("%z")
+        formatted_tz = f"UTC{tz_offset[:3]}:{tz_offset[3:]}" if tz_offset else "ไม่ระบุ"
+        tz_name = local_now.tzname() or "Local Time"
+        
+        return (
+            f"📅 วันที่: {now.strftime('%Y-%m-%d')}\n"
+            f"📆 วันในสัปดาห์: {thai_day} ({day_name})\n"
+            f"⏰ เวลาปัจจุบัน: {now.strftime('%H:%M:%S')}\n"
+            f"🌐 ไทม์โซน: {tz_name} ({formatted_tz})"
+        )
+
+
