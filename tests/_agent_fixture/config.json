@@ -1,0 +1,9 @@
+{
+  "tools": [
+    {
+      "id": "demo",
+      "enabled": true
+    }
+  ],
+  "version": "1.0.0"
+}
