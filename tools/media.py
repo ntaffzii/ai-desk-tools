@@ -1,125 +1,139 @@
-import os
-import urllib.parse
-import time
+"""Media and desktop interaction MCP tools."""
+
+from __future__ import annotations
+
 import subprocess
-import shutil
+import time
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
-# หาตำแหน่ง root ของโปรเจกต์ (parent ของโฟลเดอร์ tools/)
-_PROJECT_ROOT = Path(__file__).parent.parent
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-def register(mcp):
-    """ลงทะเบียน Media Tools เข้ากับ MCP Server"""
-
-    @mcp.tool()
-    def open_website(url: str) -> str:
-        """
-        เปิดเว็บไซต์ที่กำหนดบนบราวเซอร์หลักของเครื่องผู้ใช้ทันที
-        เช่น เปิด 'https://www.youtube.com' หรือ 'https://www.google.com'
-        """
-        print(f"[OS Control] Opening website: {url}")
-        try:
-            webbrowser.open(url)
-            return f"Success: เปิดเว็บไซต์ {url} บนบราวเซอร์เครื่องผู้ใช้สำเร็จแล้ว"
-        except Exception as e:
-            return f"Error opening website: {str(e)}"
+def register(mcp) -> None:
+    """Register media tools."""
 
     @mcp.tool()
-    def play_and_search_youtube(song_name: str) -> str:
-        """
-        เปิด YouTube ค้นหาเพลง และใช้ระบบ Image Recognition (ปุ่มสามจุด) เล็งพิกัดเพื่อคลิกเล่นวิดีโอตัวแรกอย่างแม่นยำ
-        """
-        import pyautogui  # lazy import — ป้องกัน crash บนเครื่องไม่มี GUI
-
-        print(f"[OS Control] Operating YouTube via GUI Recognition for: {song_name}")
-        try:
-            # 1. เปิดหน้าค้นหาของ YouTube ตรงๆ พร้อมชื่อเพลง
-            encoded_query = urllib.parse.quote(song_name)
-            search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
-            webbrowser.open(search_url)
-            
-            # 2. รอหน้าเว็บโหลดให้เรียบร้อย (ปรับเป็น 6 วินาที เผื่ออินเทอร์เน็ตโหลดช้า)
-            time.sleep(6)
-            
-            # 3. ค้นหาตำแหน่งของรูปภาพที่เราแคปไว้ (video_anchor.png) บนหน้าจอคอมพิวเตอร์
-            image_path = str(_PROJECT_ROOT / "video_anchor.png")
-            
-            print(f"[OS Control] Scanning screen for anchor image: {image_path}")
-            
-            try:
-                location = pyautogui.locateOnScreen(image_path, confidence=0.7)
-                if location:
-                    point = pyautogui.center(location)
-                    target_x = point.x + 180
-                    target_y = point.y - 60
-                    pyautogui.click(target_x, target_y)
-                    return f"Success: เล็งเป้าหมายจากหน้าปกและกดคลิกเล่นเพลง '{song_name}' สำเร็จ!"
-                else:
-                    # 🌟 ลอจิกเซฟโซน: ถ้าหาภาพไม่เจอจริง ๆ อย่าปล่อยให้พัง ให้กดทริกเกอร์ Enter รัวด่วนไปเลย!
-                    print("[OS Control] Image anchor not found. Using safe Keyboard Fallback...")
-                    pyautogui.press('enter')
-                    return f"Notice: ค้นหาภาพปกไม่พบ (อาจเพราะขนาดหน้าต่าง) แต่ส่งคำสั่ง Enter เพื่อพยายามกดเล่นเพลง '{song_name}' ให้แล้วครับ"
-                    
-            except Exception as img_err:
-                # 🌟 ดักจับถ้าไลบรารีมีปัญหาเรื่องการจับภาพ ให้ส่งคำสั่งคีย์บอร์ดแทนทันที ระบบจะได้ไม่ค้าง
-                pyautogui.press('enter')
-                return f"Notice: ระบบสแกนภาพขัดข้อง ({str(img_err)}) ได้เปลี่ยนมาสั่งเล่นเพลงผ่านปุ่ม Enter แทนเรียบร้อยแล้ว"
-                
-        except Exception as e:
-            return f"Error GUI automation: {str(e)}"
+    def open_website(url: str) -> dict:
+        """Open a website in the user's default browser."""
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            return {"success": False, "error": "invalid_url", "url": url}
+        webbrowser.open(url)
+        return {"success": True, "url": url}
 
     @mcp.tool()
-    def play_audio_background(song_name: str) -> str:
-        """
-        ดึงเสียงเพลงจาก YouTube และสตรีมเล่นบนหลังบ้านทันทีโดยใช้ yt-dlp ร่วมกับ mpv
-        เครื่องมือนี้ทำงานเบื้องหลังโดยไม่ต้องเปิดหน้าต่างบราวเซอร์ให้รกเครื่องผู้ใช้
-        """
-        print(f"[Audio Server] Streaming background audio for: {song_name}")
-        
-        # ตรวจสอบว่าเครื่องมีโปรแกรมไหม (ต้อง run: pip install yt-dlp และโหลด mpv ก่อนนะ)
-        # ใช้ absolute path จาก project root เพื่อไม่ให้ขึ้นกับ cwd
-        venv_ytdlp = _PROJECT_ROOT / ".venv" / "Scripts" / "yt-dlp.exe"
-        if not shutil.which("yt-dlp") and not venv_ytdlp.exists():
-            return "Error: กรุณาลง yt-dlp ในเครื่องก่อนใช้งานทูลนี้"
-        if not shutil.which("mpv"):
-            return "Error: ไม่พบโปรแกรม 'mpv' ในคอมพิวเตอร์ของคุณ กรุณาพิมพ์คำสั่ง 'winget install mpv.mpv' บน Terminal ก่อนครับ"
-            
+    def play_and_search_youtube(song_name: str) -> dict:
+        """Open YouTube search for a song. GUI clicking is intentionally not automatic."""
+        query = urllib.parse.quote(song_name)
+        url = f"https://www.youtube.com/results?search_query={query}"
+        webbrowser.open(url)
+        return {"success": True, "url": url, "note": "Opened YouTube search results. User or GUI tool can choose a result."}
+
+    @mcp.tool()
+    def play_audio_background(song_name: str) -> dict:
+        """Stream first YouTube audio result through mpv if yt-dlp and mpv are installed."""
+        import shutil
+
+        ytdlp = shutil.which("yt-dlp")
+        mpv = shutil.which("mpv")
+        if not ytdlp:
+            return {"success": False, "error": "yt-dlp_not_found"}
+        if not mpv:
+            return {"success": False, "error": "mpv_not_found"}
+
         try:
-            cmd = f'yt-dlp "ytsearch1:{song_name}" --get-url --format bestaudio'
-            stream_url_res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True)
-            stream_url = stream_url_res.stdout.strip()
-            
+            result = subprocess.run(
+                [ytdlp, f"ytsearch1:{song_name}", "--get-url", "--format", "bestaudio"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+            stream_url = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
             if not stream_url:
-                return f"Error: ค้นหาเพลง '{song_name}' ไม่พบ"
-                
-            subprocess.Popen(["mpv", "--no-video", stream_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return f"🎵 [Background Player] กำลังเริ่มสตรีมเฉพาะเสียงเพลง '{song_name}' ให้ฟังบนหลังบ้านเรียบร้อยแล้ว!"
-            
-        except Exception as e:
-            return f"Error streaming audio: {str(e)}"
+                return {"success": False, "error": "stream_not_found", "stderr": result.stderr}
+            subprocess.Popen([mpv, "--no-video", stream_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"success": True, "song_name": song_name}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
 
     @mcp.tool()
-    def press_system_media_key(action: str) -> str:
-        """
-        ควบคุมระบบมัลติมีเดียบนคอมพิวเตอร์ของผู้ใช้โดยตรง (เล่นเพลง, หยุดเพลง, เพิ่ม-ลดเสียง)
-        :param action: สั่งการระบุได้แก่ 'play_pause' (เล่น/หยุด), 'next' (เพลงถัดไป), 'volume_up' (เพิ่มเสียง), 'volume_down' (ลดเสียง)
-        """
-        import pyautogui  # lazy import — ป้องกัน crash บนเครื่องไม่มี GUI
-
-        print(f"[OS Control] Media key action: {action}")
+    def press_system_media_key(action: str) -> dict:
+        """Press a system media key using PyAutoGUI."""
+        key_map = {
+            "play_pause": "playpause",
+            "next": "nexttrack",
+            "previous": "prevtrack",
+            "volume_up": "volumeup",
+            "volume_down": "volumedown",
+            "mute": "volumemute",
+        }
+        if action not in key_map:
+            return {"success": False, "error": "invalid_action", "valid_actions": list(key_map)}
         try:
-            if action == "play_pause":
-                pyautogui.press("playpause")
-            elif action == "next":
-                pyautogui.press("nexttrack")
-            elif action == "volume_up":
-                pyautogui.press("volumeup")
-            elif action == "volume_down":
-                pyautogui.press("volumedown")
-            else:
-                return "Error: Action ไม่ถูกต้อง"
-            return f"Success: สั่งงานระบบสื่อสารมัลติมีเดียปุ่ม '{action}' สำเร็จแล้ว"
-        except Exception as e:
-            return f"Error executing media key: {str(e)}"
+            import pyautogui
+
+            pyautogui.press(key_map[action])
+            return {"success": True, "action": action}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    @mcp.tool()
+    def inspect_image(path: str) -> dict:
+        """Return basic image metadata."""
+        image_path = Path(path).expanduser().resolve()
+        if not image_path.exists():
+            return {"success": False, "error": "file_not_found", "path": str(image_path)}
+        try:
+            from PIL import Image
+        except ImportError:
+            return {"success": False, "error": "pillow_not_installed"}
+        with Image.open(image_path) as image:
+            return {"success": True, "path": str(image_path), "width": image.width, "height": image.height, "mode": image.mode, "format": image.format}
+
+    @mcp.tool()
+    def extract_video_frame(path: str, timestamp_seconds: float, output_path: str | None = None) -> dict:
+        """Extract one frame from a video using OpenCV."""
+        video_path = Path(path).expanduser().resolve()
+        if not video_path.exists():
+            return {"success": False, "error": "file_not_found", "path": str(video_path)}
+        try:
+            import cv2
+        except ImportError:
+            return {"success": False, "error": "opencv_not_installed"}
+
+        target = Path(output_path).expanduser().resolve() if output_path else video_path.with_suffix(f".frame_{int(timestamp_seconds)}.jpg")
+        cap = cv2.VideoCapture(str(video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(timestamp_seconds * fps))
+        ok, frame = cap.read()
+        cap.release()
+        if not ok:
+            return {"success": False, "error": "frame_not_read"}
+        target.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(target), frame)
+        return {"success": True, "output_path": str(target)}
+
+    @mcp.tool()
+    def create_thumbnail(path: str, output_path: str, max_size: int = 512) -> dict:
+        """Create an image thumbnail."""
+        image_path = Path(path).expanduser().resolve()
+        target = Path(output_path).expanduser().resolve()
+        try:
+            from PIL import Image
+        except ImportError:
+            return {"success": False, "error": "pillow_not_installed"}
+        with Image.open(image_path) as image:
+            image.thumbnail((max_size, max_size))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            image.save(target)
+        return {"success": True, "output_path": str(target)}
+
+    @mcp.tool()
+    def transcribe_audio(path: str) -> dict:
+        """Placeholder for transcription integration."""
+        return {"success": False, "error": "transcription_not_configured", "path": str(Path(path).expanduser().resolve())}

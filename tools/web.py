@@ -1,346 +1,219 @@
+"""Web search and page extraction MCP tools."""
+
+from __future__ import annotations
+
 import json
 import re
 import urllib.parse
 from pathlib import Path
 
-import requests
-from bs4 import BeautifulSoup
 
-# รองรับทั้ง package ใหม่ (ddgs) และเก่า (duckduckgo_search)
-try:
-    from ddgs import DDGS
-except ImportError:
-    from duckduckgo_search import DDGS
-
-# โหลดรายชื่อแหล่งข่าวที่เชื่อถือได้จากไฟล์ config
-_PROJECT_ROOT = Path(__file__).parent.parent
-_TRUSTED_SOURCES_FILE = _PROJECT_ROOT / "trusted_sources.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TRUSTED_SOURCES_FILE = PROJECT_ROOT / "trusted_sources.json"
 
 
-def _load_trusted_sources() -> set:
-    """โหลดรายชื่อแหล่งข่าวที่เชื่อถือได้ (case-insensitive)"""
+def _load_trusted_sources() -> set[str]:
     try:
-        with open(_TRUSTED_SOURCES_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {s.lower() for s in data.get("trusted_news_sources", [])}
+        data = json.loads(TRUSTED_SOURCES_FILE.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return set()
+    sources = data.get("trusted_news_sources", []) + data.get("trusted_domains", [])
+    return {str(source).lower() for source in sources}
 
 
-def _html_to_markdown(html_content: str, url: str) -> str:
-    """
-    แปลง HTML content เป็น Markdown-like text
-    """
-    soup = BeautifulSoup(html_content, "html.parser")
+def _validate_url(url: str) -> str | None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return url
 
-    # ============================
-    # 1. ดึง Metadata จาก <head>
-    # ============================
-    title_tag = soup.find("title")
-    page_title = title_tag.get_text().strip() if title_tag else "ไม่มีชื่อเรื่อง"
 
-    desc_tag = soup.find("meta", attrs={"name": "description"})
-    if not desc_tag:
-        desc_tag = soup.find("meta", attrs={"property": "og:description"})
-    page_desc = desc_tag.get("content", "").strip() if desc_tag else ""
+def _absolute_url(base_url: str, href: str) -> str:
+    return urllib.parse.urljoin(base_url, href)
 
-    # ============================
-    # 2. เลือก Content Body หลัก
-    # ============================
-    content_body = (
-        soup.find("article")
-        or soup.find("main")
-        or soup.find("div", {"role": "main"})
-        or soup.find("div", class_="content")
-        or soup.find("div", class_="post-content")
-    )
-    source = content_body if content_body else soup.body or soup
 
-    # ============================
-    # 3. ลบแท็กขยะ
-    # ============================
-    for element in source(["script", "style", "nav", "footer", "header", "aside",
-                            "form", "iframe", "noscript", "svg", "button",
-                            "input", "select", "textarea"]):
+def _html_to_text(html: str, url: str, max_chars: int = 35_000) -> dict:
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return {"success": False, "error": "beautifulsoup4_not_installed", "url": url}
+
+    soup = BeautifulSoup(html, "html.parser")
+    title = soup.find("title")
+    description = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+
+    root = soup.find("article") or soup.find("main") or soup.find("div", {"role": "main"}) or soup.body or soup
+    for element in root(["script", "style", "nav", "footer", "header", "aside", "form", "iframe", "noscript", "svg", "button", "input"]):
         element.extract()
 
-    # ============================
-    # 4. แปลง HTML → Markdown-like text
-    # ============================
-    # แปลง headings → markdown headings
-    for tag in source.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
-        level = int(tag.name[1])
-        heading_text = tag.get_text().strip()
-        if heading_text:
-            tag.replace_with(f"\n\n{'#' * level} {heading_text}\n\n")
-
-    # แปลง links → markdown links
-    for a in source.find_all("a", href=True):
-        link_text = a.get_text().strip()
-        href = a.get("href", "")
-        if link_text and href and not href.startswith("#") and not href.startswith("javascript:"):
-            # แปลง relative URL → absolute URL
-            if href.startswith("/"):
-                from urllib.parse import urlparse
-                parsed = urlparse(url)
-                href = f"{parsed.scheme}://{parsed.netloc}{href}"
-            a.replace_with(f"[{link_text}]({href})")
-
-    # แปลง list items → markdown bullets
-    for li in source.find_all("li"):
-        li_text = li.get_text().strip()
-        if li_text:
-            li.replace_with(f"\n- {li_text}")
-
-    # แปลง <code>/<pre> → markdown code blocks
-    for code in source.find_all("pre"):
-        code_text = code.get_text().strip()
-        if code_text:
-            code.replace_with(f"\n```\n{code_text}\n```\n")
-
-    # แปลง bold/italic
-    for strong in source.find_all(["strong", "b"]):
-        text = strong.get_text().strip()
+    for tag in root.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        text = tag.get_text(" ", strip=True)
         if text:
-            strong.replace_with(f"**{text}**")
+            level = int(tag.name[1])
+            tag.replace_with(f"\n\n{'#' * level} {text}\n\n")
 
-    for em in source.find_all(["em", "i"]):
-        text = em.get_text().strip()
-        if text:
-            em.replace_with(f"*{text}*")
+    for link in root.find_all("a", href=True):
+        text = link.get_text(" ", strip=True)
+        href = link.get("href", "")
+        if text and href and not href.startswith(("javascript:", "#")):
+            link.replace_with(f"[{text}]({_absolute_url(url, href)})")
 
-    # ============================
-    # 5. สกัด text สุดท้ายและจัดระเบียบ
-    # ============================
-    raw_text = source.get_text()
+    raw = root.get_text("\n")
+    lines = [line.strip() for line in raw.splitlines()]
+    clean = "\n".join(line for line in lines if line)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    truncated = len(clean) > max_chars
 
-    # จัดระเบียบบรรทัด: ลดช่องว่างเกิน, ลบบรรทัดว่างซ้ำ
-    lines = []
-    for line in raw_text.splitlines():
-        stripped = line.strip()
-        if stripped:
-            lines.append(stripped)
-        elif lines and lines[-1] != "":
-            lines.append("")  # เก็บ 1 บรรทัดว่างระหว่าง paragraphs
-
-    clean_text = "\n".join(lines)
-
-    # ลบบรรทัดว่างเกิน 2 บรรทัดติดกัน
-    clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
-
-    # ============================
-    # 6. ประกอบผลลัพธ์สุดท้ายพร้อม metadata
-    # ============================
-    max_chars = 35000
-
-    result = f"📄 **{page_title}**\n"
-    result += f"🔗 {url}\n"
-    if page_desc:
-        result += f"📝 {page_desc}\n"
-    result += "---\n\n"
-
-    if len(clean_text) > max_chars:
-        result += clean_text[:max_chars]
-        result += f"\n\n...[⚠️ ตัดที่ {max_chars} ตัวอักษร — เนื้อหาหลักส่วนใหญ่ครบแล้ว]..."
-    else:
-        result += clean_text
-
-    if not clean_text.strip():
-        return "Error: หน้าเว็บนี้ไม่มีเนื้อหาข้อความ หรือหน้าเว็บโหลดข้อมูลด้วย JavaScript (ควรลองใช้ browse_dynamic_webpage)"
-
-    return result
+    return {
+        "success": bool(clean),
+        "url": url,
+        "title": title.get_text(" ", strip=True) if title else "",
+        "description": description.get("content", "").strip() if description else "",
+        "content": clean[:max_chars],
+        "truncated": truncated,
+    }
 
 
-def register(mcp):
-    """ลงทะเบียน Web Tools เข้ากับ MCP Server"""
+def register(mcp) -> None:
+    """Register web tools."""
 
     @mcp.tool()
-    def search_web(query: str, max_results: int = 5) -> str:
-        """
-        ค้นหาข้อมูลบนอินเทอร์เน็ตแบบเรียลไทม์ ได้ผลลัพธ์จริง (ชื่อเรื่อง, URL, สรุปเนื้อหา)
-        ใช้เมื่อต้องการหาข้อมูล ความรู้ หรือเว็บไซต์ที่เกี่ยวข้องกับหัวข้อที่กำหนด
-        :param query: คำค้นหา (รองรับทั้งไทยและอังกฤษ)
-        :param max_results: จำนวนผลลัพธ์สูงสุด (ค่าเริ่มต้น 5, สูงสุด 10)
-        """
+    def search_web(query: str, max_results: int = 5) -> dict:
+        """Search the web using DuckDuckGo."""
         max_results = min(max(1, max_results), 10)
-        print(f"[Web Search] DuckDuckGo search for: '{query}' (max={max_results})")
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            try:
+                from duckduckgo_search import DDGS
+            except ImportError:
+                return {"success": False, "error": "ddgs_not_installed", "query": query}
 
         try:
-            # ============================
-            # ท่อหลัก: DuckDuckGo DDGS — ได้ผลค้นหาจริง (title + URL + snippet)
-            # ============================
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=max_results))
-
-            if results:
-                res_text = f"🔎 ผลการค้นหาสำหรับ '{query}' ({len(results)} รายการ):\n\n"
-                for idx, r in enumerate(results, start=1):
-                    title = r.get("title", "No Title")
-                    url = r.get("href", "No URL")
-                    snippet = r.get("body", "ไม่มีคำอธิบาย")
-                    res_text += f"[{idx}] {title}\n"
-                    res_text += f"    URL: {url}\n"
-                    res_text += f"    สรุป: {snippet}\n\n"
-                return res_text
-
-        except Exception as ddg_err:
-            print(f"[Web Search] DuckDuckGo error: {ddg_err}. Falling back to Crossref...")
-
-        # ============================
-        # ท่อสำรอง: Crossref Academic API — กรณี DuckDuckGo ล่ม
-        # ============================
-        try:
-            fallback_url = f"https://api.crossref.org/works?query={urllib.parse.quote(query)}&rows={max_results}"
-            fb_res = requests.get(fallback_url, timeout=8).json()
-            items = fb_res.get("message", {}).get("items", [])
-            if items:
-                fb_text = f"🔎 [Crossref Backup] ผลค้นหาจากฐานข้อมูลวิชาการ:\n\n"
-                for idx, item in enumerate(items, start=1):
-                    title = item.get("title", ["No Title"])[0]
-                    link = item.get("URL", "No URL")
-                    fb_text += f"[{idx}] {title}\n    URL: {link}\n\n"
-                return fb_text
-        except Exception as fb_err:
-            print(f"[Web Search] Crossref fallback also failed: {fb_err}")
-
-        return f"ไม่สามารถค้นหาข้อมูลสำหรับ '{query}' ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง"
+            return {
+                "success": True,
+                "query": query,
+                "results": [
+                    {"title": item.get("title", ""), "url": item.get("href", ""), "snippet": item.get("body", "")}
+                    for item in results
+                ],
+            }
+        except Exception as exc:
+            return {"success": False, "error": str(exc), "query": query}
 
     @mcp.tool()
-    def search_web_news(query: str, max_results: int = 5, trusted_only: bool = False) -> str:
-        """
-        ค้นหาข่าวสารล่าสุดบนอินเทอร์เน็ต ได้ผลลัพธ์พร้อมวันที่และแหล่งข่าว
-        รองรับการกรองเฉพาะแหล่งข่าวที่เชื่อถือได้ (กำหนดใน trusted_sources.json)
-        :param query: คำค้นหาข่าว (รองรับทั้งไทยและอังกฤษ)
-        :param max_results: จำนวนผลลัพธ์สูงสุด (ค่าเริ่มต้น 5, สูงสุด 10)
-        :param trusted_only: ถ้าเป็น True จะแสดงเฉพาะข่าวจากแหล่งที่เชื่อถือได้เท่านั้น
-        """
-        # ดึงมากกว่าที่ขอ เผื่อกรอง trusted แล้วเหลือน้อย
-        fetch_count = min(max(1, max_results), 10)
-        if trusted_only:
-            fetch_count = min(fetch_count * 3, 25)
-
-        print(f"[Web News] DuckDuckGo news search for: '{query}' (trusted_only={trusted_only})")
-
-        # โหลด trusted sources ใหม่ทุกครั้ง เพื่อให้แก้ไขไฟล์แล้วมีผลทันที
+    def search_web_news(query: str, max_results: int = 5, trusted_only: bool = False) -> dict:
+        """Search recent news using DuckDuckGo news."""
+        max_results = min(max(1, max_results), 10)
         trusted = _load_trusted_sources()
+        fetch_count = min(max_results * 3, 25) if trusted_only else max_results
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            try:
+                from duckduckgo_search import DDGS
+            except ImportError:
+                return {"success": False, "error": "ddgs_not_installed", "query": query}
 
         try:
             with DDGS() as ddgs:
-                results = list(ddgs.news(query, max_results=fetch_count))
+                raw_results = list(ddgs.news(query, max_results=fetch_count))
+        except Exception as exc:
+            return {"success": False, "error": str(exc), "query": query}
 
-            if results:
-                filtered = []
-                for r in results:
-                    source = r.get("source", "")
-                    is_trusted = source.lower() in trusted
-                    r["_trusted"] = is_trusted
-                    if trusted_only and not is_trusted:
-                        continue
-                    filtered.append(r)
+        results = []
+        for item in raw_results:
+            source = str(item.get("source", ""))
+            url = str(item.get("url", ""))
+            host = urllib.parse.urlparse(url).netloc.lower()
+            is_trusted = source.lower() in trusted or host in trusted
+            if trusted_only and not is_trusted:
+                continue
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "url": url,
+                    "source": source,
+                    "date": item.get("date", ""),
+                    "snippet": item.get("body", ""),
+                    "trusted": is_trusted,
+                }
+            )
+            if len(results) >= max_results:
+                break
 
-                # จำกัดผลลัพธ์ตามที่ขอ
-                display = filtered[:min(max_results, 10)]
-
-                if not display:
-                    return f"ไม่พบข่าวจากแหล่งที่เชื่อถือได้สำหรับ '{query}'\nลองใช้ trusted_only=False หรือเพิ่มแหล่งข่าวใน trusted_sources.json"
-
-                mode_label = "เฉพาะแหล่งที่เชื่อถือ" if trusted_only else "ทุกแหล่ง"
-                res_text = f"📰 ข่าวล่าสุดสำหรับ '{query}' ({len(display)} รายการ | {mode_label}):\n\n"
-                for idx, r in enumerate(display, start=1):
-                    title = r.get("title", "No Title")
-                    url = r.get("url", "No URL")
-                    snippet = r.get("body", "ไม่มีคำอธิบาย")
-                    source = r.get("source", "ไม่ทราบแหล่งข่าว")
-                    date = r.get("date", "ไม่ทราบวันที่")
-                    badge = " ✅" if r.get("_trusted") else ""
-                    res_text += f"[{idx}] {title}\n"
-                    res_text += f"    แหล่งข่าว: {source}{badge} | วันที่: {date}\n"
-                    res_text += f"    URL: {url}\n"
-                    res_text += f"    สรุป: {snippet}\n\n"
-                return res_text
-
-        except Exception as e:
-            return f"ไม่สามารถค้นหาข่าวสำหรับ '{query}' ได้: {str(e)}"
-
-        return f"ไม่พบข่าวที่เกี่ยวข้องกับ '{query}'"
+        return {"success": True, "query": query, "trusted_only": trusted_only, "results": results}
 
     @mcp.tool()
-    def browse_webpage(url: str) -> str:
-        """
-        เข้าถึง URL ของหน้าเว็บเพื่ออ่านเนื้อหาแบบ Markdown ที่มีโครงสร้างชัดเจน (เหมาะกับเว็บที่เป็น Static HTML)
-        ผลลัพธ์จะรักษา headings, links, lists ไว้เพื่อให้ AI เข้าใจเนื้อหาได้ง่ายขึ้น
-        ใช้เมื่อต้องการดึงบทความ เอกสาร หรือข้อมูลจากหน้าเว็บมาให้ AI วิเคราะห์
-        """
-        print(f"[Web Browser] Extracting content from: {url}")
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5,th;q=0.3"
-        }
-
+    def browse_webpage(url: str, timeout_seconds: int = 15, max_chars: int = 35_000) -> dict:
+        """Fetch a static webpage and extract readable text."""
+        if not _validate_url(url):
+            return {"success": False, "error": "invalid_url", "url": url}
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            if response.status_code != 200:
-                return f"Error: ไม่สามารถเข้าถึงหน้าเว็บได้ (HTTP {response.status_code})"
+            import requests
+        except ImportError:
+            return {"success": False, "error": "requests_not_installed", "url": url}
 
-            return _html_to_markdown(response.text, url)
-
-        except requests.exceptions.Timeout:
-            return f"Error: หน้าเว็บ {url} ใช้เวลาโหลดนานเกินไป (timeout 15 วินาที)"
-        except requests.exceptions.ConnectionError:
-            return f"Error: ไม่สามารถเชื่อมต่อกับ {url} ได้ (ตรวจสอบ URL หรือการเชื่อมต่ออินเทอร์เน็ต)"
-        except Exception as e:
-            return f"Error reading webpage: {str(e)}"
+        timeout_seconds = min(max(3, timeout_seconds), 60)
+        headers = {"User-Agent": "AI-Desk-Tools/1.0 (+https://github.com)"}
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout_seconds)
+            response.raise_for_status()
+            return _html_to_text(response.text, url, max_chars=max_chars)
+        except Exception as exc:
+            return {"success": False, "error": str(exc), "url": url}
 
     @mcp.tool()
-    async def browse_dynamic_webpage(url: str, wait_selector: str = None, timeout_ms: int = 15000) -> str:
-        """
-        ดึงเนื้อหาเว็บเพจที่มีการโหลดข้อมูลผ่าน JavaScript (Dynamic Web Content เช่น หน้า SPA, หน้าที่มีตารางสินค้าดึงด้วย AJAX)
-        โดยจำลองการรันผ่านระบบบราวเซอร์จริง (Playwright Headless Chromium - Async API)
-        :param url: URL ของเว็บไซต์ที่ต้องการดึงข้อมูล
-        :param wait_selector: CSS Selector ที่ต้องการรอให้โหลดสำเร็จก่อนเริ่มอ่านเนื้อหา (เช่น '#content', '.product-grid')
-        :param timeout_ms: เวลาจำกัดในการโหลดหน้าเว็บและรอ Selector (หน่วยเป็นมิลลิวินาที ค่าเริ่มต้น 15000)
-        """
-        print(f"[Dynamic Browser] Extracting content asynchronously from: {url}")
+    async def browse_dynamic_webpage(url: str, wait_selector: str | None = None, timeout_ms: int = 15_000, max_chars: int = 35_000) -> dict:
+        """Use Playwright to fetch a JavaScript-rendered webpage."""
+        if not _validate_url(url):
+            return {"success": False, "error": "invalid_url", "url": url}
 
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            return "Error: ไม่สามารถนำเข้า playwright ได้ กรุณารัน 'pip install playwright' และ 'playwright install chromium'"
+            return {"success": False, "error": "playwright_not_installed"}
 
+        timeout_ms = min(max(3_000, timeout_ms), 60_000)
         try:
-            async with async_playwright() as p:
-                # รัน headless chromium
-                browser = await p.chromium.launch(headless=True)
-                
-                # จำลอง User Agent เผื่อโดนบล็อก
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 800}
-                )
-                
-                page = await context.new_page()
-                
-                # นำทางไปที่ URL โดยกำหนด timeout
-                await page.goto(url, timeout=timeout_ms)
-                
-                # ถ้าระบุ Selector ให้รอจนกว่าจะแสดงขึ้นมา
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                page = await browser.new_page(viewport={"width": 1280, "height": 800})
+                await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
                 if wait_selector:
-                    try:
-                        await page.wait_for_selector(wait_selector, timeout=timeout_ms)
-                    except Exception as wait_err:
-                        print(f"[Dynamic Browser] Warning: wait_for_selector '{wait_selector}' timed out: {wait_err}")
+                    await page.wait_for_selector(wait_selector, timeout=timeout_ms)
                 else:
-                    # ถ้าไม่ได้ระบุ ให้รอเพิ่ม 2 วินาที เผื่อสคริปต์หน้าเว็บหลักโหลดข้อมูล
-                    await page.wait_for_timeout(2000)
-                
-                html_content = await page.content()
+                    await page.wait_for_timeout(1500)
+                html = await page.content()
                 await browser.close()
+            return _html_to_text(html, url, max_chars=max_chars)
+        except Exception as exc:
+            return {"success": False, "error": str(exc), "url": url}
 
-            # แปลง HTML ที่ได้เป็น Markdown
-            return _html_to_markdown(html_content, url)
+    @mcp.tool()
+    def fetch_url(url: str) -> dict:
+        """Alias for browse_webpage."""
+        return browse_webpage(url)
 
-        except Exception as e:
-            return f"Error reading webpage dynamically: {str(e)}"
+    @mcp.tool()
+    def extract_page_text(html: str, url: str = "https://example.local") -> dict:
+        """Extract readable text from provided HTML."""
+        return _html_to_text(html, url)
 
+    @mcp.tool()
+    def summarize_sources(sources: list[dict]) -> dict:
+        """Return a compact source list for agent-side summarization."""
+        return {
+            "success": True,
+            "count": len(sources),
+            "sources": [
+                {
+                    "title": source.get("title", ""),
+                    "url": source.get("url", ""),
+                    "snippet": str(source.get("snippet") or source.get("content") or "")[:500],
+                }
+                for source in sources
+            ],
+        }

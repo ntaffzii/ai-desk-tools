@@ -1,19 +1,9 @@
-"""
-tools/prompt_improver.py
-------------------------
-MCP tool สำหรับ improve prompt
-ใช้ FastMCP pattern เดียวกับ tools อื่นๆ
-"""
+"""Prompt improvement MCP tools."""
 
-from mcp.server.fastmcp import FastMCP
+from __future__ import annotations
 
-from prompt_engine import PromptAnalyzer, PromptImprover, TemplateSelector, PromptHistory
-from prompt_engine.improver import ImproveResult
+from prompt_engine import PromptAnalyzer, PromptHistory, PromptImprover, TemplateSelector
 
-
-# -----------------------------------------------------------------------
-# Singletons
-# -----------------------------------------------------------------------
 
 _analyzer = PromptAnalyzer()
 _improver = PromptImprover()
@@ -21,84 +11,15 @@ _selector = TemplateSelector()
 _history = PromptHistory()
 
 
-# -----------------------------------------------------------------------
-# Register Function
-# -----------------------------------------------------------------------
-
-def register(mcp: FastMCP):
-    """ลงทะเบียน prompt improver tools เข้า MCP server"""
-
-    @mcp.tool()
-    async def improve_prompt(
-        prompt: str,
-        task_type: str = "",
-        save_history: bool = True,
-        tags: list[str] = [],
-    ) -> dict:
-        """
-        ปรับปรุง prompt ให้ชัดเจนและมีประสิทธิภาพมากขึ้น
-        รองรับภาษาไทยและอังกฤษ ตรวจจับประเภทงานอัตโนมัติ
-
-        Args:
-            prompt: prompt ที่ต้องการ improve
-            task_type: ประเภทงาน (ถ้าไม่ระบุจะตรวจจับอัตโนมัติ)
-                       เลือกได้: rag, code, summary, extraction,
-                                translation, analysis, creative, qa, general
-            save_history: บันทึกลง history (default: True)
-            tags: tags สำหรับจัดกลุ่ม เช่น ["production", "rag"]
-        """
-        if not prompt.strip():
-            return {"error": "prompt is required"}
-
-        # 1. วิเคราะห์
-        analysis = _analyzer.analyze(prompt)
-
-        # override task_type ถ้าผู้ใช้ระบุมา
-        if task_type and task_type in _selector.list_task_types():
-            analysis.task_type = task_type
-
-        # 2. Improve
-        result: ImproveResult = await _improver.improve(prompt, analysis)
-
-        # 3. บันทึก history
-        history_id = None
-        if save_history:
-            entry = _history.save(result, tags=tags)
-            history_id = entry.id
-
-        return {
-            "success": result.success,
-            "history_id": history_id,
-            "original_prompt": result.original_prompt,
-            "improved_prompt": result.improved_prompt,
-            "analysis": {
-                "language": analysis.language,
-                "task_type": result.task_type,
-                "quality_before": result.quality_before,
-                "quality_after": result.quality_after,
-                "improvement": result.quality_after - result.quality_before,
-                "issues_found": analysis.issues,
-                "changes_made": result.changes_summary,
-            },
-            "structure_hint": result.structure_hint,
-            "error": result.error,
-        }
+def register(mcp) -> None:
+    """Register prompt tools."""
 
     @mcp.tool()
     def analyze_prompt(prompt: str) -> dict:
-        """
-        วิเคราะห์ prompt เพื่อหาจุดอ่อนและให้คำแนะนำ
-        โดยไม่ทำการปรับปรุง
-
-        Args:
-            prompt: prompt ที่ต้องการวิเคราะห์
-        """
-        if not prompt.strip():
-            return {"error": "prompt is required"}
-
+        """Analyze prompt quality and return issues, suggestions, and structure hints."""
         analysis = _analyzer.analyze(prompt)
-
         return {
+            "success": bool(prompt.strip()),
             "language": analysis.language,
             "task_type": analysis.task_type,
             "quality_score": analysis.quality_score,
@@ -113,63 +34,81 @@ def register(mcp: FastMCP):
         }
 
     @mcp.tool()
-    def get_prompt_history(
-        limit: int = 10,
-        task_type: str = "",
-        keyword: str = "",
-        tag: str = "",
-    ) -> dict:
-        """
-        ดึงประวัติ prompt ที่ผ่านการ improve
+    async def improve_prompt(prompt: str, task_type: str = "", save_history: bool = True, tags: list[str] | None = None) -> dict:
+        """Improve a prompt using the local model endpoint when configured, otherwise rule-based fallback."""
+        if not prompt.strip():
+            return {"success": False, "error": "prompt is required"}
 
-        Args:
-            limit: จำนวน entries ที่ต้องการ (default: 10)
-            task_type: filter ตามประเภทงาน
-            keyword: ค้นหาจากข้อความใน prompt
-            tag: filter ตาม tag
-        """
-        entries = _history.search(
-            keyword=keyword or None,
-            task_type=task_type or None,
-            tag=tag or None,
-        )
-        entries = entries[:limit]
+        analysis = _analyzer.analyze(prompt)
+        if task_type and task_type in _selector.list_task_types():
+            analysis.task_type = task_type
+
+        result = await _improver.improve(prompt, analysis)
+        history_id = None
+        if save_history:
+            history_id = _history.save(result, tags=tags or []).id
 
         return {
+            "success": result.success,
+            "history_id": history_id,
+            "original_prompt": result.original_prompt,
+            "improved_prompt": result.improved_prompt,
+            "analysis": {
+                "language": analysis.language,
+                "task_type": result.task_type,
+                "quality_before": result.quality_before,
+                "quality_after": result.quality_after,
+                "improvement": result.quality_after - result.quality_before,
+                "issues_found": analysis.issues,
+                "changes_made": result.changes_summary,
+                "model_used": result.model_used,
+            },
+            "structure_hint": result.structure_hint,
+            "error": result.error,
+        }
+
+    @mcp.tool()
+    def generate_system_prompt(task: str, task_type: str = "general") -> dict:
+        """Generate a compact system prompt draft for a task."""
+        template = _selector.get(task_type)
+        return {
+            "success": True,
+            "task_type": template.task_type,
+            "system_prompt": f"{template.system_prompt}\n\nTask: {task}\n\nBe specific, verify important claims, and report remaining risk.",
+            "structure_hint": template.structure_hint,
+        }
+
+    @mcp.tool()
+    def score_prompt(prompt: str) -> dict:
+        """Return prompt quality score only."""
+        analysis = _analyzer.analyze(prompt)
+        return {"success": bool(prompt.strip()), "score": analysis.quality_score, "max_score": 100, "issues": analysis.issues}
+
+    @mcp.tool()
+    def get_prompt_history(limit: int = 10, task_type: str = "", keyword: str = "", tag: str = "") -> dict:
+        """Return prompt improvement history."""
+        limit = min(max(1, limit), 100)
+        entries = _history.search(keyword=keyword or None, task_type=task_type or None, tag=tag or None)[:limit]
+        return {
+            "success": True,
             "total_found": len(entries),
             "stats": _history.stats(),
             "entries": [
                 {
-                    "id": e.id,
-                    "created_at": e.created_at,
-                    "task_type": e.task_type,
-                    "quality_before": e.quality_before,
-                    "quality_after": e.quality_after,
-                    "improvement": e.quality_after - e.quality_before,
-                    "original_preview": (
-                        e.original_prompt[:80] + "..."
-                        if len(e.original_prompt) > 80
-                        else e.original_prompt
-                    ),
-                    "tags": e.tags,
+                    "id": entry.id,
+                    "created_at": entry.created_at,
+                    "task_type": entry.task_type,
+                    "quality_before": entry.quality_before,
+                    "quality_after": entry.quality_after,
+                    "improvement": entry.quality_after - entry.quality_before,
+                    "original_preview": entry.original_prompt[:120],
+                    "tags": entry.tags,
                 }
-                for e in entries
+                for entry in entries
             ],
         }
 
     @mcp.tool()
     def export_prompt_history(output_path: str = "prompt_history.md") -> dict:
-        """
-        Export ประวัติ prompt ทั้งหมดเป็นไฟล์ Markdown
-
-        Args:
-            output_path: path ไฟล์ที่ต้องการ export
-        """
-        saved_path = _history.export_markdown(output_path)
-        stats = _history.stats()
-
-        return {
-            "success": True,
-            "output_path": saved_path,
-            "total_entries": stats.get("total", 0),
-        }
+        """Export prompt improvement history to Markdown."""
+        return {"success": True, "output_path": _history.export_markdown(output_path), "stats": _history.stats()}
