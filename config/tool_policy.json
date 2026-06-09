@@ -1,0 +1,45 @@
+{
+  "allowed_roots": [
+    "${REPO_ROOT}",
+    "C:/tmp"
+  ],
+  "audit_log": "logs/audit.jsonl",
+  "max_file_read_chars": 200000,
+  "max_command_output_chars": 200000,
+  "commands": {
+    "allow_shell_control_operators": false,
+    "allowed_prefixes": [
+      ["git", "status"],
+      ["git", "diff"],
+      ["git", "log"],
+      ["git", "show"],
+      ["git", "branch"],
+      ["git", "rev-parse"],
+      ["git", "checkout"],
+      ["git", "add"],
+      ["git", "restore", "--staged"],
+      ["git", "commit"],
+      ["python", "-m", "pytest"],
+      ["python", "-m", "py_compile"],
+      ["pytest"],
+      ["npm", "test"],
+      ["npm", "run", "test"],
+      ["npm", "run", "lint"],
+      ["npm", "run", "typecheck"],
+      ["npm", "run", "build"],
+      ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+    ],
+    "blocked_executables": [
+      "rm",
+      "del",
+      "erase",
+      "rmdir",
+      "rd",
+      "format",
+      "shutdown",
+      "reboot",
+      "curl",
+      "wget"
+    ]
+  }
+}
