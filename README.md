@@ -1,115 +1,325 @@
-# 🛠️ ai-desk-tools (MCP Server)
+# AI Desk MCP Tools
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP-green.svg)](https://modelcontextprotocol.io/)
+`ai-desk-mcp-tools` is a local MCP server for personal AI agents. It gives an MCP-capable client access to safe local tools for files, Git, project inspection, prompt improvement, skill routing, browser checks, Notion/Obsidian planning, finance research, memory/RAG, and more.
 
-**ai-desk-tools** คือเซิร์ฟเวอร์ Model Context Protocol (MCP) ที่พัฒนาด้วย Python FastMCP ออกแบบมาเพื่อเป็นเครื่องมือเสริมพลังให้กับโมดูล AI/LLM ในการควบคุมและเข้าถึงข้อมูลภายในคอมพิวเตอร์ส่วนบุคคล (Desktop) ทั้งการค้นหาเว็บ การรันคำสั่ง Terminal การจัดการไฟล์ และการควบคุมระบบ GUI
+This repo is the executable tool layer. Pair it with a skill/workflow repo such as `Skill-Agents` when you want the agent to know not only what tools exist, but also how to use them.
 
----
+```text
+Skill-Agents       = skills, workflows, docs, examples
+ai-desk-mcp-tools  = MCP server, executable tools, tests, safety policy
+```
 
-## 🌟 ฟีเจอร์หลัก (Key Features)
+## What This Server Does
 
-ระบบแบ่งหมวดหมู่เครื่องมือออกเป็น 5 กลุ่มหลัก เพื่อให้ AI เรียกใช้งานได้อย่างเหมาะสม:
+- Runs as an MCP server over `stdio` or HTTP-style transport.
+- Registers 50+ tool groups from `tools/`.
+- Keeps risky actions behind policy, allowlists, and draft/read-only defaults.
+- Supports local LLM workflows through `skill-runtime` and `prompt-improver`.
+- Works with LM Studio, Claude Desktop, Claude Code, local agents, and MCP clients that support local servers.
 
-### 1. 📂 Filesystem Tools (การจัดการไฟล์และโฟลเดอร์)
-- **`list_directory_tree`**: สแกนและสร้างโครงสร้างโฟลเดอร์แบบ Tree เพื่อให้ AI เห็นภาพรวมโครงการ
-- **`find_files_by_keyword`**: ค้นหาไฟล์ด้วยคีย์เวิร์ดอย่างรวดเร็ว (รองรับระบบค้นหาแบบ Optimized สำหรับ Windows)
-- **`search_in_files`**: ค้นหาข้อความหรือคีย์เวิร์ดภายในเนื้อหาของไฟล์แบบ Recursive (ทำงานคล้าย grep/findstr รองรับการค้นหาด้วย Regex และจำกัดขนาดไฟล์เพื่อป้องกัน Timeout)
+## Quick Start
 
-### 2. 🌐 Web Tools (การสืบค้นข้อมูลอินเทอร์เน็ตระดับมืออาชีพ)
-- **`search_web`**: ค้นหาข้อมูลเรียลไทม์ผ่าน DuckDuckGo API (คืนค่าเป็น Title, URL, และ Snippet จริง) มีระบบ Fallback ไปยังฐานข้อมูลวิชาการ Crossref
-- **`search_web_news`**: ค้นหาข่าวสารล่าสุด ระบุแหล่งข่าว วันที่เผยแพร่ และตรวจสอบความน่าเชื่อถือผ่าน Trusted Sources list
-- **`browse_webpage`**: ดึงเนื้อหาหน้าเว็บและแปลงให้อยู่ในรูปแบบ Markdown ที่อ่านง่าย รักษาโครงสร้าง Headings, Links, และ Lists (เหมาะกับเว็บแบบ Static HTML)
-- **`browse_dynamic_webpage`**: ดึงเนื้อหาหน้าเว็บที่มีการโหลดข้อมูลผ่าน JavaScript (เช่น SPA, React, Vue, AJAX) โดยจำลองรันผ่านเบราว์เซอร์จริง (Playwright Headless Chromium) และรองรับการรอ CSS Selector จนกว่าจะโหลดเสร็จ
+From this repo root:
 
-### 3. 💻 System & OS Control (การสั่งการระบบและคำสั่ง)
-- **`get_system_drives`**: ดึงรายชื่อ Drive ที่มีทั้งหมดในระบบ (เช่น `C:\`, `D:\`, `I:\`) เพื่อเป็นข้อมูลตั้งต้นให้ AI เริ่มต้นการสแกนระบบ
-- **`run_command`**: สั่งรันคำสั่ง Terminal/Shell บนเครื่องผู้ใช้แบบ Synchronous (เช่น `pip install`, `git status`, `dir`) พร้อมระบบแปลงรหัส Encoding อัตโนมัติ ป้องกันปัญหาภาษาไทยและอักษรพิเศษบน Windows
-- **`get_current_datetime`**: ดึงวัน เวลา วันในสัปดาห์ (เช่น วันจันทร์-วันอาทิตย์) และข้อมูลไทม์โซนปัจจุบันของเครื่องผู้ใช้ ช่วยให้ AI รู้เวลาในการทำงานเชิงเวลาจริง
-
-
-### 4. 📺 Media & GUI Automation (การควบคุมอินเทอร์เฟซของระบบ)
-- **`open_website`**: เปิดเว็บไซต์ที่ระบุผ่าน Default Web Browser ทันที
-- **`play_and_search_youtube`**: เปิดเพลงบน YouTube และใช้เทคโนโลยี Image Recognition (Template Matching ผ่าน `PyAutoGUI`) เพื่อเล็งและคลิกกดเล่นวิดีโอตัวแรกโดยอัตโนมัติ
-
-### 5. ✏️ Code Editing (การอ่านเขียนและปรับแต่งโค้ด)
-- **`view_file_content`**: อ่านเนื้อหาในไฟล์ข้อความ UTF-8
-- **`write_file`**: เขียนเนื้อหาใหม่ทับลงในไฟล์ หรือสร้างไฟล์ใหม่
-- **`edit_file_specific`**: ค้นหาและแก้ไขบล็อกโค้ดเฉพาะจุดภายในไฟล์แบบเจาะจง ป้องกันปัญหาระบบเขียนทับผิดพลาด
-
----
-
-## 🚀 วิธีการติดตั้งและเริ่มใช้งาน (Installation & Quick Start)
-
-### 1. เตรียมระบบ (Prerequisites)
-- ติดตั้ง **Python 3.10 ขึ้นไป**
-- (แนะนำ) ติดตั้ง Git สำหรับการควบคุมเวอร์ชัน
-
-### 2. ติดตั้ง Dependencies
-โคลนโปรเจกต์นี้ไปยังเครื่องคอมพิวเตอร์ของคุณ จากนั้นรันคำสั่งเพื่อติดตั้งไลบรารีที่จำเป็น:
-
-```bash
-# สร้าง Virtual Environment
+```powershell
 python -m venv .venv
-
-# เปิดใช้งาน Virtual Environment
-# สำหรับ Windows:
-.venv\Scripts\activate
-# สำหรับ macOS/Linux:
-source .venv/bin/activate
-
-# ติดตั้งไลบรารีทั้งหมด
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+```
 
-# ติดตั้งเบราว์เซอร์สำหรับ Playwright (ต้องทำอย่างน้อย 1 ครั้งหลังติดตั้งแพ็กเกจ)
+Optional browser support:
+
+```powershell
 playwright install chromium
 ```
 
----
+Run stdio MCP server:
 
-## ⚙️ การตั้งค่าใช้งานร่วมกับ Claude Desktop
+```powershell
+python .\server.py
+```
 
-คุณสามารถเชื่อมต่อเซิร์ฟเวอร์นี้เข้ากับแอปพลิเคชัน Claude Desktop เพื่อใช้งานในฐานะ AI Assistant ส่วนตัวได้โดยแก้ไขไฟล์ตั้งค่า:
+Run HTTP MCP server:
 
-**Path สำหรับ Windows:**
-`%APPDATA%\Claude\claude_desktop_config.json`
+```powershell
+python .\server_http.py --host 127.0.0.1 --port 8765
+```
 
-**เนื้อหาไฟล์ตั้งค่าที่ต้องเพิ่ม:**
+Use `stdio` first for LM Studio, Claude Desktop, and most local MCP clients. Use HTTP only when your client explicitly supports HTTP MCP.
+
+## LM Studio MCP Config
+
+In LM Studio:
+
+```text
+Program
+-> Install
+-> Edit mcp.json
+```
+
+Use:
+
 ```json
 {
   "mcpServers": {
     "ai-desk-tools": {
-      "command": "python",
+      "command": "C:\\path\\to\\ai-desk-mcp-tools\\.venv\\Scripts\\python.exe",
       "args": [
-        "I:/01_Work/Dev/project/ai-llm-tools/server.py"
+        "C:\\path\\to\\ai-desk-mcp-tools\\server.py"
+      ]
+    }
+  }
+}
+```
+
+With prompt improver local model:
+
+```json
+{
+  "mcpServers": {
+    "ai-desk-tools": {
+      "command": "C:\\path\\to\\ai-desk-mcp-tools\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\path\\to\\ai-desk-mcp-tools\\server.py"
       ],
       "env": {
-        "PYTHONPATH": "I:/01_Work/Dev/project/ai-llm-tools"
+        "PROMPT_IMPROVER_API_URL": "http://localhost:1234/v1/chat/completions",
+        "PROMPT_IMPROVER_MODEL": "LFM2.5-8B-A1B"
       }
     }
   }
 }
 ```
-*(หมายเหตุ: กรุณาแก้ไขเส้นทาง Path ให้ตรงกับโฟลเดอร์จริงบนเครื่องของคุณ และใช้เครื่องหมาย Forward Slash `/` ในการระบุเส้นทาง)*
 
----
+`LFM2.5-8B-A1B` is the recommended starter model for prompt improvement when available. It is not required; use any OpenAI-compatible local model name.
 
-## 🧪 การทดสอบระบบ (Testing)
+## Claude Desktop Config
 
-สามารถรันสคริปต์ทดสอบภายในโฟลเดอร์โครงการเพื่อตรวจสอบการทำงานของเซิร์ฟเวอร์แบบเบื้องต้น:
-
-```bash
-python -c "from tools.system import register; from tools.filesystem import register"
+```json
+{
+  "mcpServers": {
+    "ai-desk-tools": {
+      "command": "C:\\path\\to\\ai-desk-mcp-tools\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\path\\to\\ai-desk-mcp-tools\\server.py"
+      ]
+    }
+  }
+}
 ```
 
-หรือเปิดใช้งานเซิร์ฟเวอร์โดยตรงเพื่อตรวจสอบการลงทะเบียนเครื่องมือผ่าน FastMCP CLI:
-```bash
-mcp dev server.py
+## Environment Variables
+
+Only set what you use. Do not commit real tokens.
+
+```powershell
+$env:NOTION_TOKEN="..."
+$env:GITHUB_TOKEN="..."
+$env:FIGMA_TOKEN="..."
+$env:SLACK_BOT_TOKEN="..."
+$env:POSTGRES_DSN="..."
+$env:FIRECRAWL_API_KEY="..."
 ```
 
----
+Prompt improver:
 
-## 📄 สัญญาอนุญาต (License)
+```powershell
+$env:PROMPT_IMPROVER_API_URL="http://localhost:1234/v1/chat/completions"
+$env:PROMPT_IMPROVER_MODEL="LFM2.5-8B-A1B"
+```
 
-โครงการนี้อยู่ภายใต้สัญญาอนุญาตแบบ **[MIT License](LICENSE)** สามารถนำไปใช้งาน พัฒนาต่อ หรือแจกจ่ายได้อย่างอิสระเสรี
+RAG/embedding provider:
+
+```powershell
+$env:EMBEDDINGS_API_URL="..."
+$env:EMBEDDINGS_MODEL="..."
+$env:EMBEDDINGS_API_KEY="..."
+```
+
+If `PROMPT_IMPROVER_API_URL` is not set, prompt improvement still works through a rule-based fallback.
+
+## Tool Groups
+
+### Runtime And Routing
+
+- `registry` - inspect tools, workflows, runtime capabilities, allowed roots, and policy.
+- `skill-runtime` - index skills, route requests, load selected workflows/skills, and build compact local-LLM context.
+- `toolsets` - recommend curated tool groups for job types.
+- `audit` - inspect audit logs and policy denials.
+- `mcp-security-audit` - classify MCP tools by risk and policy coverage.
+- `system` - inspect environment and command availability.
+
+### Project And Code
+
+- `filesystem` - list, read, search, and inspect files.
+- `project` - detect project stack, scripts, important files, and health.
+- `docs` - find documentation and build context bundles.
+- `repo-index` - build and search lightweight repo maps.
+- `package` - inspect manifests, dependencies, and lockfiles.
+- `code-editing` - write, patch, preview diffs, format, and run tests.
+- `validation` - plan and run allowlisted validation commands.
+- `test-inspection` - find tests and map source to test files.
+- `ci` - inspect CI files and validation commands.
+- `structured-data` - read, validate, and patch JSON/YAML/TOML.
+- `sandbox` - create temporary safe workspaces and compile snippets.
+
+### Git And GitHub
+
+- `git` - read-only Git status, diff, log, show, branch.
+- `git-control` - create/switch branches, stage/unstage, commit.
+- `github` - inspect local GitHub metadata and draft PR descriptions.
+- `github-api` - read repo, issue, PR, changed files, and checks when token is configured.
+- `issue-tracker` - parse issue references, draft issues, break down tasks, and plan updates.
+
+### Backend And Security
+
+- `api` - inspect routes, endpoints, OpenAPI, and API config.
+- `database` - inspect schema files, migrations, ORM models, and database config.
+- `postgres` - plan and run read-only Postgres queries when configured.
+- `config` - inspect config files, env keys, and secret hygiene.
+- `dependency-risk` - inspect dependency risk signals from manifests.
+- `security-scanner` - scan for likely secrets, dangerous commands, env exposure, and dependency risks.
+- `docker` - inspect Dockerfile/Compose and plan Docker validation.
+- `release` - inspect versions, changelogs, and release readiness.
+- `backup` - plan/create/list zip snapshots inside allowed roots.
+
+### Personal Workspace
+
+- `notion` - search/read Notion and draft page/block payloads.
+- `obsidian-notion-bridge` - plan safe Obsidian/Notion conversions.
+- `calendar` - summarize supplied events, build daily plans, draft meeting prep.
+- `email-inbox` - summarize supplied email messages, extract action items, draft replies.
+- `slack-discord` - search/summarize messages, draft replies, extract actions.
+- `memory` - save/search/summarize local memories.
+- `memory-context` - save typed decisions, preferences, lessons, and context packs.
+- `vector-memory` - lightweight semantic memory search.
+- `rag-adapter` - chunk text, plan RAG indexes, and draft embedding requests.
+
+### Browser, Web, Media, Finance
+
+- `browser` - inspect browser readiness, static HTML, and localhost URLs.
+- `browser-page-map` - map HTML headings, links, forms, buttons, and inputs.
+- `playwright` - inspect live pages and capture screenshots.
+- `playwright-actions` - click/fill/assert text, inspect console/network, accessibility snapshots, persistent sessions.
+- `figma` - inspect Figma files and draft frontend implementation plans.
+- `web` - search/fetch/extract/summarize sources.
+- `web-capture` - provider-neutral public webpage capture with social-site safety limits.
+- `finance-market` - quotes, crypto prices, finance-news plans, watchlists, position risk.
+- `media` - inspect/process images, audio, and video.
+- `prompt-improver` - analyze, rewrite, score, and template prompts.
+- `external-mcp-catalog` - compare public MCP patterns and draft local adaptations.
+- `task` - scan TODO/FIXME/HACK/BUG markers and roadmap files.
+- `user-runner` - write command handoffs and user-run PowerShell scripts.
+
+## Recommended Local LLM Flow
+
+For local LLMs or clients that do not natively load skills:
+
+```text
+User request
+  -> skill-runtime.route_request
+  -> prompt-improver if request is unclear
+  -> skill-runtime.build_agent_context
+  -> use recommended toolset/tools
+  -> final answer with verification
+```
+
+Example prompt:
+
+```text
+Use skill-runtime first. Route this request, improve it only if unclear, then load selected workflow and skills:
+
+Build today's plan from Notion, Obsidian, calendar, inbox, chat, memory, and open issues.
+Draft only. Do not send or apply anything.
+```
+
+## HTTP Server
+
+```powershell
+python .\server_http.py --transport streamable-http --host 127.0.0.1 --port 8765
+```
+
+If your client expects SSE:
+
+```powershell
+python .\server_http.py --transport sse --host 127.0.0.1 --port 8765
+```
+
+Keep `127.0.0.1` for personal use. Do not expose this server on public internet without authentication, firewalling, per-user policy, and audit review.
+
+## Safety Model
+
+Defaults are intentionally conservative:
+
+- Email/chat/issue/Notion actions are draft or plan oriented.
+- Postgres rejects mutating SQL and only runs read-only queries.
+- Web capture does not bypass login, CAPTCHA, private accounts, or paywalls.
+- Git push, force push, reset hard, merge, and rebase are not exposed.
+- File and command access are controlled by `config/tool_policy.json`.
+- Audit logs are configured in `config/tool_policy.json`.
+
+Policy file:
+
+```text
+config/tool_policy.json
+```
+
+Security layer:
+
+```text
+security.py
+```
+
+## Project Structure
+
+```text
+ai-desk-mcp-tools/
+  README.md
+  requirements.txt
+  security.py
+  server.py
+  server_http.py
+  trusted_sources.json
+  config/
+    tool_policy.json
+  prompt_engine/
+  tools/
+  tests/
+```
+
+## Tests
+
+Run all MCP tool tests:
+
+```powershell
+python -m unittest discover -s .\tests
+```
+
+If this repo is inside the full `Skill-Agents` workspace, use the workspace validator:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\scripts\validate-all.ps1
+```
+
+## Pair With Skill-Agents
+
+This repo contains tools only. For skills, workflows, local LLM prompts, provider config, examples, and usage guides, use the companion repo:
+
+```text
+Skill-Agents
+```
+
+Suggested pairing:
+
+```text
+Skill-Agents/examples/local-llm-agent-prompt.md
+Skill-Agents/docs/SKILL_RUNTIME_FLOW.md
+Skill-Agents/docs/LOCAL_LLM_SETTINGS.md
+Skill-Agents/docs/PROMPT_IMPROVER_LOCAL_MODEL.md
+Skill-Agents/config.json
+```
+
+## License And Attribution
+
+See the companion `Skill-Agents` repo for broader attribution notes. This tool server follows MCP community patterns, filesystem safety patterns, and toolbox-style organization, while keeping implementation local and safety-first.
+

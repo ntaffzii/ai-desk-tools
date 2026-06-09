@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "ai-desk-tools": {
+      "command": "C:\\Users\\natth\\Documents\\Skill-Agents\\mcp-tools\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\natth\\Documents\\Skill-Agents\\mcp-tools\\server.py"
+      ],
+      "env": {
+        "NOTION_TOKEN": "replace-with-your-token",
+        "GITHUB_TOKEN": "replace-with-your-token",
+        "FIGMA_TOKEN": "replace-with-your-token"
+      }
+    }
+  }
+}
+
