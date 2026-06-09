@@ -1,107 +1,71 @@
-"""
-improver.py
------------
-รับ prompt ดิบ + AnalysisResult แล้วเรียก LFM2.5-8B
-เพื่อสร้าง improved prompt กลับมา
-"""
+"""Prompt improvement engine with optional OpenAI-compatible local model."""
+
+from __future__ import annotations
 
 import os
-import json
-import httpx
-import asyncio
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .analyzer import AnalysisResult
 from .templates import TemplateSelector
 
 
-# -----------------------------------------------------------------------
-# Data classes
-# -----------------------------------------------------------------------
-
 @dataclass
 class ImproveResult:
-    """ผลลัพธ์จากการ improve prompt"""
     original_prompt: str
     improved_prompt: str
     task_type: str
     quality_before: int
-    quality_after: int          # ประมาณการ (วัดจาก analyzer อีกรอบ)
+    quality_after: int
     changes_summary: list[str] = field(default_factory=list)
     structure_hint: str = ""
-    model_used: str = "LFM2.5-8B-A1B"
+    model_used: str = "rule-based"
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
-
-# -----------------------------------------------------------------------
-# PromptImprover
-# -----------------------------------------------------------------------
 
 class PromptImprover:
-    """
-    ส่ง prompt ไปให้ LFM ปรับปรุง
-
-    ตัวอย่างการใช้งาน:
-        improver = PromptImprover()
-        result = await improver.improve(original_prompt, analysis_result)
-        print(result.improved_prompt)
-    """
+    """Improve prompts with a local LLM when configured, otherwise use rules."""
 
     def __init__(
         self,
-        api_url: str = "http://localhost:8080/v1/chat/completions",  # LFM local endpoint
-        model: str = "LFM2.5-8B-A1B",
-        timeout: int = 60,
-        use_fallback: bool = True,          # fallback เป็น rule-based ถ้า API ไม่ตอบ
-    ):
-        self.api_url = api_url
-        self.model = model
+        api_url: str | None = None,
+        model: str | None = None,
+        timeout: int = 45,
+        use_fallback: bool = True,
+    ) -> None:
+        self.api_url = api_url or os.getenv("PROMPT_IMPROVER_API_URL", "")
+        self.model = model or os.getenv("PROMPT_IMPROVER_MODEL", "local-model")
         self.timeout = timeout
         self.use_fallback = use_fallback
         self.selector = TemplateSelector()
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    async def improve(
-        self,
-        original_prompt: str,
-        analysis: AnalysisResult,
-    ) -> ImproveResult:
-        """
-        ปรับปรุง prompt โดยใช้ LFM
-        ถ้า API ไม่พร้อม จะใช้ rule-based fallback แทน
-        """
+    async def improve(self, original_prompt: str, analysis: AnalysisResult) -> ImproveResult:
         template = self.selector.get(analysis.task_type)
+        error: str | None = None
 
-        try:
-            improved = await self._call_llm(
-                original_prompt=original_prompt,
-                system_prompt=template.system_prompt,
-                analysis=analysis,
-            )
-        except Exception as e:
-            if self.use_fallback:
+        if self.api_url:
+            try:
+                improved = await self._call_llm(original_prompt, analysis)
+                model_used = self.model
+            except Exception as exc:
+                if not self.use_fallback:
+                    return ImproveResult(
+                        original_prompt=original_prompt,
+                        improved_prompt=original_prompt,
+                        task_type=analysis.task_type,
+                        quality_before=analysis.quality_score,
+                        quality_after=analysis.quality_score,
+                        success=False,
+                        error=str(exc),
+                    )
                 improved = self._rule_based_improve(original_prompt, analysis)
-                error_note = f"LFM API unavailable ({e}), used rule-based fallback"
-            else:
-                return ImproveResult(
-                    original_prompt=original_prompt,
-                    improved_prompt=original_prompt,
-                    task_type=analysis.task_type,
-                    quality_before=analysis.quality_score,
-                    quality_after=analysis.quality_score,
-                    success=False,
-                    error=str(e),
-                )
-            error_note = None
+                model_used = "rule-based"
+                error = f"model unavailable; used fallback: {exc}"
+        else:
+            improved = self._rule_based_improve(original_prompt, analysis)
+            model_used = "rule-based"
 
-        # ประมาณ quality หลัง improve
-        quality_after = min(100, analysis.quality_score + max(10, (100 - analysis.quality_score) // 2))
-
+        quality_after = min(100, max(analysis.quality_score + 15, analysis.quality_score + (100 - analysis.quality_score) // 2))
         return ImproveResult(
             original_prompt=original_prompt,
             improved_prompt=improved,
@@ -110,139 +74,108 @@ class PromptImprover:
             quality_after=quality_after,
             changes_summary=self._summarize_changes(analysis),
             structure_hint=template.structure_hint,
-            model_used=self.model,
+            model_used=model_used,
             success=True,
-            error=getattr(self, "_last_error", None),
+            error=error,
         )
 
-    # ------------------------------------------------------------------
-    # LFM API call
-    # ------------------------------------------------------------------
+    async def _call_llm(self, original_prompt: str, analysis: AnalysisResult) -> str:
+        import httpx
 
-    async def _call_llm(
-        self,
-        original_prompt: str,
-        system_prompt: str,
-        analysis: AnalysisResult,
-    ) -> str:
-        """เรียก LFM local endpoint (OpenAI-compatible)"""
-
-        user_content = self._build_user_message(original_prompt, analysis)
-
+        template = self.selector.get(analysis.task_type)
         payload = {
             "model": self.model,
-            "temperature": 0.3,
-            "max_tokens": 1024,
+            "temperature": 0.2,
+            "max_tokens": 1200,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
+                {"role": "system", "content": template.system_prompt + " Return only the improved prompt."},
+                {"role": "user", "content": self._build_user_message(original_prompt, analysis)},
             ],
         }
-
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                self.api_url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
+            response = await client.post(self.api_url, json=payload)
             response.raise_for_status()
             data = response.json()
-
         return data["choices"][0]["message"]["content"].strip()
 
-    def _build_user_message(
-        self, original_prompt: str, analysis: AnalysisResult
-    ) -> str:
-        """สร้าง user message ที่ส่งไปให้ LFM"""
-        issues_text = "\n".join(f"- {i}" for i in analysis.issues) or "- ไม่พบปัญหาชัดเจน"
-        suggestions_text = "\n".join(f"- {s}" for s in analysis.suggestions) or "- N/A"
-
-        return f"""Please improve this prompt:
-
---- ORIGINAL PROMPT ---
+    def _build_user_message(self, original_prompt: str, analysis: AnalysisResult) -> str:
+        issues = "\n".join(f"- {issue}" for issue in analysis.issues) or "- none"
+        suggestions = "\n".join(f"- {suggestion}" for suggestion in analysis.suggestions) or "- none"
+        return f"""Original prompt:
 {original_prompt}
---- END ---
 
 Analysis:
 - Language: {analysis.language}
 - Task type: {analysis.task_type}
 - Quality score: {analysis.quality_score}/100
-- Issues found:
-{issues_text}
+- Issues:
+{issues}
 - Suggestions:
-{suggestions_text}
+{suggestions}
 
-Rewrite the prompt to fix all the issues above. Keep the same language ({analysis.language})."""
+Rewrite the prompt in the same main language."""
 
-    # ------------------------------------------------------------------
-    # Rule-based fallback
-    # ------------------------------------------------------------------
-
-    def _rule_based_improve(
-        self, original_prompt: str, analysis: AnalysisResult
-    ) -> str:
-        """
-        ปรับ prompt แบบ rule-based เมื่อ LFM API ไม่พร้อม
-        ใช้ template จาก templates.py + แทรก original prompt
-        """
+    def _rule_based_improve(self, original_prompt: str, analysis: AnalysisResult) -> str:
         template = self.selector.get(analysis.task_type)
-        lang = analysis.language
+        labels = self._labels(analysis.language)
 
-        # สร้าง prefix ตามภาษา
-        if lang == "thai":
-            role_prefix = "คุณเป็น AI ผู้ช่วยที่เชี่ยวชาญ"
-            task_label = "งาน"
-            format_label = "รูปแบบคำตอบ"
-            constraint_label = "ข้อจำกัด"
-        else:
-            role_prefix = "You are an expert AI assistant"
-            task_label = "Task"
-            format_label = "Output format"
-            constraint_label = "Constraints"
-
-        sections = [f"{role_prefix}\n"]
-
-        # เพิ่ม context ถ้าขาด
+        sections = [
+            f"{labels['role']}: {labels['expert']}",
+        ]
         if not analysis.has_context:
-            if lang == "thai":
-                sections.append("บริบท: [ระบุบริบทที่เกี่ยวข้องที่นี่]\n")
-            else:
-                sections.append("Context: [Add relevant background here]\n")
-
-        # ใส่ prompt เดิม
-        sections.append(f"{task_label}:\n{original_prompt}\n")
-
-        # เพิ่ม format ถ้าขาด
+            sections.append(f"{labels['context']}: [{labels['add_context']}]")
+        sections.append(f"{labels['task']}:\n{original_prompt.strip()}")
         if not analysis.has_output_format:
-            if analysis.task_type == "extraction":
-                sections.append(f"{format_label}: JSON\n")
-            elif analysis.task_type == "summary":
-                sections.append(f"{format_label}: bullet points (3-5 ข้อ)\n" if lang == "thai"
-                                 else f"{format_label}: bullet points (3-5 items)\n")
-            elif analysis.task_type == "rag":
-                sections.append(f"{format_label}: ตอบจากเอกสารเท่านั้น ถ้าไม่พบให้บอกว่าไม่มีข้อมูล\n"
-                                 if lang == "thai"
-                                 else f"{format_label}: Answer from documents only. Say 'Not found' if absent.\n")
+            sections.append(f"{labels['format']}: {self._default_format(analysis.task_type, analysis.language)}")
+        if not analysis.has_constraints:
+            sections.append(f"{labels['constraints']}:\n- {labels['be_specific']}\n- {labels['verify']}")
+        sections.append(f"{labels['structure_hint']}: {template.structure_hint}")
+        return "\n\n".join(sections).strip()
 
-        return "\n".join(sections).strip()
+    def _labels(self, language: str) -> dict[str, str]:
+        if language == "thai":
+            return {
+                "role": "บทบาท",
+                "expert": "ผู้ช่วย AI ที่ตอบอย่างชัดเจน ตรวจสอบได้ และไม่เดาเกินข้อมูล",
+                "context": "บริบท",
+                "add_context": "เพิ่มบริบทที่เกี่ยวข้อง",
+                "task": "งาน",
+                "format": "รูปแบบผลลัพธ์",
+                "constraints": "ข้อจำกัด",
+                "be_specific": "ตอบให้เฉพาะเจาะจง",
+                "verify": "ถ้ามีข้อเท็จจริงสำคัญ ให้ระบุวิธีตรวจสอบหรือข้อจำกัด",
+                "structure_hint": "โครงสร้างที่แนะนำ",
+            }
+        return {
+            "role": "Role",
+            "expert": "An AI assistant that answers clearly, verifies important claims, and avoids unsupported guesses",
+            "context": "Context",
+            "add_context": "add relevant background",
+            "task": "Task",
+            "format": "Output format",
+            "constraints": "Constraints",
+            "be_specific": "be specific",
+            "verify": "state verification steps or limitations for important claims",
+            "structure_hint": "Recommended structure",
+        }
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
+    def _default_format(self, task_type: str, language: str) -> str:
+        if task_type == "extraction":
+            return "JSON only"
+        if task_type == "summary":
+            return "3-5 bullet points" if language != "thai" else "สรุปเป็น bullet 3-5 ข้อ"
+        if task_type == "analysis":
+            return "sections with evidence and conclusion" if language != "thai" else "แยกหัวข้อ พร้อมเหตุผลและข้อสรุป"
+        return "clear sections"
 
     def _summarize_changes(self, analysis: AnalysisResult) -> list[str]:
-        """สรุปสิ่งที่ถูกแก้ไขจากการ improve"""
         changes = []
         if not analysis.has_context:
-            changes.append("เพิ่ม role และ context")
+            changes.append("added context placeholder")
         if not analysis.has_output_format:
-            changes.append("ระบุ output format")
-        if not analysis.has_examples and analysis.task_type in ("extraction", "code"):
-            changes.append("เพิ่มตัวอย่าง input/output")
+            changes.append("added output format")
         if not analysis.has_constraints:
-            changes.append("เพิ่ม constraints")
-        if analysis.language == "mixed":
-            changes.append("ปรับภาษาให้สม่ำเสมอ")
-        if not changes:
-            changes.append("ปรับความชัดเจนและความเฉพาะเจาะจง")
-        return changes
+            changes.append("added constraints")
+        if not analysis.has_examples and analysis.task_type in {"code", "extraction"}:
+            changes.append("suggested examples")
+        return changes or ["tightened clarity and specificity"]
