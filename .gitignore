@@ -19,3 +19,6 @@ desktop.ini
 
 # Output & Temp Files
 efficiency_report_*.md
+
+# model
+models/
