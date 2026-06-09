@@ -1,25 +1,55 @@
-# AI Desk MCP Tools
+# AI Desk Tools
 
-`ai-desk-mcp-tools` is a local MCP server for personal AI agents. It gives an MCP-capable client access to safe local tools for files, Git, project inspection, prompt improvement, skill routing, browser checks, Notion/Obsidian planning, finance research, memory/RAG, and more.
+Local MCP tools for personal AI agents.
 
-This repo is the executable tool layer. Pair it with a skill/workflow repo such as `Skill-Agents` when you want the agent to know not only what tools exist, but also how to use them.
+This repo is the **executable MCP tool layer** for:
+
+[ntaffzii/Skill-Agents](https://github.com/ntaffzii/Skill-Agents)
 
 ```text
-Skill-Agents       = skills, workflows, docs, examples
-ai-desk-mcp-tools  = MCP server, executable tools, tests, safety policy
+Skill-Agents  = skills, workflows, docs, examples, provider config
+ai-desk-tools = MCP server, Python tools, tests, runtime safety policy
 ```
 
-## What This Server Does
+Use this repo when you want LM Studio, Claude Desktop, Claude Code, Codex, or a local agent to call real tools on your machine.
 
-- Runs as an MCP server over `stdio` or HTTP-style transport.
-- Registers 50+ tool groups from `tools/`.
-- Keeps risky actions behind policy, allowlists, and draft/read-only defaults.
-- Supports local LLM workflows through `skill-runtime` and `prompt-improver`.
-- Works with LM Studio, Claude Desktop, Claude Code, local agents, and MCP clients that support local servers.
+## What It Includes
+
+- MCP server over stdio: `server.py`
+- MCP server over HTTP/SSE-style transport: `server_http.py`
+- 50+ local tool groups
+- skill routing and compact context building
+- prompt improvement with local model fallback
+- read-only/draft-only defaults for private data
+- security policy and audit logging
+- unit tests for tool behavior
+
+## Companion Skill Repo
+
+For skills, workflows, local LLM prompts, provider config, and usage docs:
+
+[ntaffzii/Skill-Agents](https://github.com/ntaffzii/Skill-Agents)
+
+Recommended pairing:
+
+```text
+Skill-Agents/examples/local-llm-agent-prompt.md
+Skill-Agents/docs/SKILL_RUNTIME_FLOW.md
+Skill-Agents/docs/LOCAL_LLM_SETTINGS.md
+Skill-Agents/docs/PROMPT_IMPROVER_LOCAL_MODEL.md
+Skill-Agents/config.json
+```
 
 ## Quick Start
 
-From this repo root:
+Clone:
+
+```bash
+git clone https://github.com/ntaffzii/ai-desk-tools.git
+cd ai-desk-tools
+```
+
+Install:
 
 ```powershell
 python -m venv .venv
@@ -27,7 +57,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Optional browser support:
+Optional Playwright browser support:
 
 ```powershell
 playwright install chromium
@@ -45,9 +75,9 @@ Run HTTP MCP server:
 python .\server_http.py --host 127.0.0.1 --port 8765
 ```
 
-Use `stdio` first for LM Studio, Claude Desktop, and most local MCP clients. Use HTTP only when your client explicitly supports HTTP MCP.
+Use `stdio` first unless your MCP client specifically supports HTTP MCP.
 
-## LM Studio MCP Config
+## LM Studio Setup
 
 In LM Studio:
 
@@ -57,15 +87,15 @@ Program
 -> Edit mcp.json
 ```
 
-Use:
+Add:
 
 ```json
 {
   "mcpServers": {
     "ai-desk-tools": {
-      "command": "C:\\path\\to\\ai-desk-mcp-tools\\.venv\\Scripts\\python.exe",
+      "command": "C:\\path\\to\\ai-desk-tools\\.venv\\Scripts\\python.exe",
       "args": [
-        "C:\\path\\to\\ai-desk-mcp-tools\\server.py"
+        "C:\\path\\to\\ai-desk-tools\\server.py"
       ]
     }
   }
@@ -78,9 +108,9 @@ With prompt improver local model:
 {
   "mcpServers": {
     "ai-desk-tools": {
-      "command": "C:\\path\\to\\ai-desk-mcp-tools\\.venv\\Scripts\\python.exe",
+      "command": "C:\\path\\to\\ai-desk-tools\\.venv\\Scripts\\python.exe",
       "args": [
-        "C:\\path\\to\\ai-desk-mcp-tools\\server.py"
+        "C:\\path\\to\\ai-desk-tools\\server.py"
       ],
       "env": {
         "PROMPT_IMPROVER_API_URL": "http://localhost:1234/v1/chat/completions",
@@ -91,17 +121,17 @@ With prompt improver local model:
 }
 ```
 
-`LFM2.5-8B-A1B` is the recommended starter model for prompt improvement when available. It is not required; use any OpenAI-compatible local model name.
+`LFM2.5-8B-A1B` is the recommended starter model for prompt improvement when available. It is not required.
 
-## Claude Desktop Config
+## Claude Desktop Setup
 
 ```json
 {
   "mcpServers": {
     "ai-desk-tools": {
-      "command": "C:\\path\\to\\ai-desk-mcp-tools\\.venv\\Scripts\\python.exe",
+      "command": "C:\\path\\to\\ai-desk-tools\\.venv\\Scripts\\python.exe",
       "args": [
-        "C:\\path\\to\\ai-desk-mcp-tools\\server.py"
+        "C:\\path\\to\\ai-desk-tools\\server.py"
       ]
     }
   }
@@ -128,15 +158,29 @@ $env:PROMPT_IMPROVER_API_URL="http://localhost:1234/v1/chat/completions"
 $env:PROMPT_IMPROVER_MODEL="LFM2.5-8B-A1B"
 ```
 
-RAG/embedding provider:
+If `PROMPT_IMPROVER_API_URL` is not set, prompt improvement still works with a rule-based fallback.
 
-```powershell
-$env:EMBEDDINGS_API_URL="..."
-$env:EMBEDDINGS_MODEL="..."
-$env:EMBEDDINGS_API_KEY="..."
+## Local LLM Flow
+
+When paired with [Skill-Agents](https://github.com/ntaffzii/Skill-Agents), use this flow:
+
+```text
+User request
+  -> skill-runtime.route_request
+  -> prompt-improver if unclear
+  -> skill-runtime.build_agent_context
+  -> recommended toolset/tools
+  -> final answer with verification
 ```
 
-If `PROMPT_IMPROVER_API_URL` is not set, prompt improvement still works through a rule-based fallback.
+Example:
+
+```text
+Use skill-runtime first. Route this request, improve it only if unclear, then load selected workflow and skills:
+
+Build today's plan from Notion, Obsidian, calendar, inbox, chat, memory, and open issues.
+Draft only. Do not send or apply anything.
+```
 
 ## Tool Groups
 
@@ -152,7 +196,7 @@ If `PROMPT_IMPROVER_API_URL` is not set, prompt improvement still works through 
 ### Project And Code
 
 - `filesystem` - list, read, search, and inspect files.
-- `project` - detect project stack, scripts, important files, and health.
+- `project` - detect stack, scripts, important files, and health.
 - `docs` - find documentation and build context bundles.
 - `repo-index` - build and search lightweight repo maps.
 - `package` - inspect manifests, dependencies, and lockfiles.
@@ -177,7 +221,7 @@ If `PROMPT_IMPROVER_API_URL` is not set, prompt improvement still works through 
 - `database` - inspect schema files, migrations, ORM models, and database config.
 - `postgres` - plan and run read-only Postgres queries when configured.
 - `config` - inspect config files, env keys, and secret hygiene.
-- `dependency-risk` - inspect dependency risk signals from manifests.
+- `dependency-risk` - inspect dependency risk signals.
 - `security-scanner` - scan for likely secrets, dangerous commands, env exposure, and dependency risks.
 - `docker` - inspect Dockerfile/Compose and plan Docker validation.
 - `release` - inspect versions, changelogs, and release readiness.
@@ -211,28 +255,6 @@ If `PROMPT_IMPROVER_API_URL` is not set, prompt improvement still works through 
 - `task` - scan TODO/FIXME/HACK/BUG markers and roadmap files.
 - `user-runner` - write command handoffs and user-run PowerShell scripts.
 
-## Recommended Local LLM Flow
-
-For local LLMs or clients that do not natively load skills:
-
-```text
-User request
-  -> skill-runtime.route_request
-  -> prompt-improver if request is unclear
-  -> skill-runtime.build_agent_context
-  -> use recommended toolset/tools
-  -> final answer with verification
-```
-
-Example prompt:
-
-```text
-Use skill-runtime first. Route this request, improve it only if unclear, then load selected workflow and skills:
-
-Build today's plan from Notion, Obsidian, calendar, inbox, chat, memory, and open issues.
-Draft only. Do not send or apply anything.
-```
-
 ## HTTP Server
 
 ```powershell
@@ -245,7 +267,7 @@ If your client expects SSE:
 python .\server_http.py --transport sse --host 127.0.0.1 --port 8765
 ```
 
-Keep `127.0.0.1` for personal use. Do not expose this server on public internet without authentication, firewalling, per-user policy, and audit review.
+Keep `127.0.0.1` for personal use. Do not expose this server publicly without authentication, firewalling, per-user policy, and audit review.
 
 ## Safety Model
 
@@ -258,22 +280,10 @@ Defaults are intentionally conservative:
 - File and command access are controlled by `config/tool_policy.json`.
 - Audit logs are configured in `config/tool_policy.json`.
 
-Policy file:
-
-```text
-config/tool_policy.json
-```
-
-Security layer:
-
-```text
-security.py
-```
-
 ## Project Structure
 
 ```text
-ai-desk-mcp-tools/
+ai-desk-tools/
   README.md
   requirements.txt
   security.py
@@ -289,37 +299,17 @@ ai-desk-mcp-tools/
 
 ## Tests
 
-Run all MCP tool tests:
-
 ```powershell
 python -m unittest discover -s .\tests
 ```
 
-If this repo is inside the full `Skill-Agents` workspace, use the workspace validator:
+If this repo is inside the full `Skill-Agents` workspace:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\scripts\validate-all.ps1
 ```
 
-## Pair With Skill-Agents
+## License
 
-This repo contains tools only. For skills, workflows, local LLM prompts, provider config, examples, and usage guides, use the companion repo:
-
-```text
-Skill-Agents
-```
-
-Suggested pairing:
-
-```text
-Skill-Agents/examples/local-llm-agent-prompt.md
-Skill-Agents/docs/SKILL_RUNTIME_FLOW.md
-Skill-Agents/docs/LOCAL_LLM_SETTINGS.md
-Skill-Agents/docs/PROMPT_IMPROVER_LOCAL_MODEL.md
-Skill-Agents/config.json
-```
-
-## License And Attribution
-
-See the companion `Skill-Agents` repo for broader attribution notes. This tool server follows MCP community patterns, filesystem safety patterns, and toolbox-style organization, while keeping implementation local and safety-first.
+See `LICENSE` in the companion repo or add your preferred license file for this standalone tools repo.
 
