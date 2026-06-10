@@ -123,12 +123,16 @@ def _recommend_skills(task: str, workflow_ids: list[str], limit: int) -> list[di
 
 def _recommend_toolsets(task: str, workflow_ids: list[str], limit: int) -> list[dict]:
     workflow_set = set(workflow_ids)
+    primary_workflow = workflow_ids[0] if workflow_ids else ""
     recommendations = []
     for toolset in _read_json(TOOLSETS_REGISTRY):
         haystack = " ".join([toolset.get("id", ""), toolset.get("title", ""), toolset.get("description", ""), " ".join(toolset.get("toolGroups", []))])
         score = _score(task, haystack)
-        if workflow_set & set(toolset.get("recommendedWorkflows", [])):
-            score += 8
+        recommended_workflows = set(toolset.get("recommendedWorkflows", []))
+        if primary_workflow and primary_workflow in recommended_workflows:
+            score += 12
+        elif workflow_set & recommended_workflows:
+            score += 4
         if score:
             recommendations.append({**toolset, "score": score})
     recommendations.sort(key=lambda item: (-item["score"], item.get("id", "")))
@@ -253,4 +257,3 @@ def register(mcp) -> None:
         context = "\n\n".join(chunks)
         audit("skill_runtime.build_agent_context", True, {"chars": len(context)})
         return {"success": True, "route": route, "context": context, "chars": len(context), "truncated_by_budget": used >= budget}
-

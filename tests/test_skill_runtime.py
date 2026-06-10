@@ -69,7 +69,16 @@ class SkillRuntimeTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertTrue(result["needs_prompt_improver"])
 
+    def test_primary_workflow_has_stronger_toolset_priority(self):
+        toolsets = skill_runtime._recommend_toolsets(
+            "Build a responsive SaaS dashboard with accessible forms",
+            ["frontend-interface", "build-mcp-tool"],
+            5,
+        )
+        ids = [item["id"] for item in toolsets]
+        self.assertIn("frontend-ui", ids[:2])
+        self.assertIn("design-frontend", ids[:2])
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -40,6 +40,10 @@ Skill-Agents/docs/PROMPT_IMPROVER_LOCAL_MODEL.md
 Skill-Agents/config.json
 ```
 
+Complete three-repository setup:
+
+[Skill-Agents Complete Local AI System Guide](https://github.com/ntaffzii/Skill-Agents/blob/master/docs/COMPLETE_LOCAL_AI_SYSTEM.md)
+
 ## Quick Start
 
 Clone:
@@ -312,4 +316,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ..\scripts\validate-all.ps1
 ## License
 
 See `LICENSE` in the companion repo or add your preferred license file for this standalone tools repo.
-
