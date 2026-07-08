@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Desk Tools - Web Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0c16;
+            --surface-color: rgba(20, 22, 41, 0.6);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary-color: #7952e9;
+            --primary-glow: rgba(121, 82, 233, 0.4);
+            --secondary-color: #00f2fe;
+            --secondary-glow: rgba(0, 242, 254, 0.3);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.2);
+            --glass-blur: 16px;
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(98, 0, 234, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 229, 255, 0.12) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        header {
+            padding: 2rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(var(--glass-blur));
+            background: rgba(11, 12, 22, 0.4);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-section h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ffffff 0%, #b0b5ff 50%, var(--secondary-color) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            border-radius: 8px;
+            box-shadow: 0 0 15px var(--primary-glow);
+            display: inline-block;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        main {
+            flex: 1;
+            padding: 3rem 5%;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 2.5rem;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        /* Toolsets Panel (Left) */
+        .toolsets-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .toolset-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            cursor: pointer;
+            transition: all var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(var(--glass-blur));
+            position: relative;
+            overflow: hidden;
+        }
+
+        .toolset-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--primary-glow) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity var(--transition-speed);
+            pointer-events: none;
+        }
+
+        .toolset-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .toolset-card:hover::before {
+            opacity: 0.5;
+        }
+
+        .toolset-card.active {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 20px rgba(121, 82, 233, 0.2);
+            background: rgba(121, 82, 233, 0.08);
+        }
+
+        .toolset-card.active::before {
+            opacity: 1;
+        }
+
+        .toolset-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+        }
+
+        .toolset-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .toolset-badge {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-muted);
+        }
+
+        .toolset-card.active .toolset-badge {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+            color: #ffffff;
+        }
+
+        .toolset-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        /* Tool Groups Grid (Right) */
+        .groups-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .group-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            backdrop-filter: blur(var(--glass-blur));
+            transition: all var(--transition-speed) ease;
+        }
+
+        .group-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .group-card.selected {
+            border-color: rgba(0, 242, 254, 0.4);
+            background: rgba(0, 242, 254, 0.03);
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.05);
+        }
+
+        .group-card.core-group {
+            border-color: var(--primary-color);
+            background: rgba(121, 82, 233, 0.04);
+            opacity: 0.9;
+        }
+
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+
+        .group-info {
+            flex: 1;
+            padding-right: 0.75rem;
+        }
+
+        .group-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 0.25rem;
+        }
+
+        .group-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        /* Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: .4s;
+            border-radius: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: #ffffff;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+            box-shadow: 0 0 10px var(--secondary-glow);
+        }
+
+        input:disabled + .slider {
+            background-color: rgba(121, 82, 233, 0.3);
+            border-color: var(--primary-color);
+            cursor: not-allowed;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        .group-card.core-group .slider:before {
+            background-color: #ffffff;
+        }
+
+        .group-tools-list {
+            margin-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 0.75rem;
+        }
+
+        .group-tools-title {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tools-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .tool-tag {
+            font-size: 0.7rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            color: #d1d5db;
+        }
+
+        /* Floating Dashboard Action Bar */
+        .action-bar-container {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 1000px;
+            z-index: 1000;
+        }
+
+        .action-bar {
+            background: rgba(15, 17, 34, 0.75);
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 1.25rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 
+                0 20px 40px -15px rgba(0, 0, 0, 0.6),
+                0 0 30px rgba(121, 82, 233, 0.1);
+            animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .stats-section {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-val {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .stat-val span {
+            color: var(--secondary-color);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+        }
+
+        button {
+            font-family: inherit;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: #ffffff;
+            padding: 0.75rem 1.5rem;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #a855f7 100%);
+            border: none;
+            color: #ffffff;
+            padding: 0.75rem 2rem;
+            box-shadow: 0 4px 15px rgba(121, 82, 233, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(121, 82, 233, 0.6);
+        }
+
+        .btn-primary:active {
+            transform: translateY(1px);
+        }
+
+        /* Notifications */
+        .toast {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            background: rgba(16, 185, 129, 0.9);
+            color: #ffffff;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            z-index: 10000;
+            transform: translateX(120%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            font-weight: 500;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        /* Loader */
+        .loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--secondary-color);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="loader-overlay" id="loader">
+        <div class="spinner"></div>
+    </div>
+
+    <header>
+        <div class="logo-section">
+            <h1><span class="logo-icon"></span> AI Desk Tools</h1>
+        </div>
+        <div class="status-badge">
+            <span class="status-dot"></span> MCP Portal Connected
+        </div>
+    </header>
+
+    <main>
+        <div>
+            <div class="section-title">
+                <h2>Preset Toolsets</h2>
+            </div>
+            <div class="toolsets-container" id="toolsets-list">
+                <!-- Toolsets will be loaded here -->
+            </div>
+        </div>
+
+        <div>
+            <div class="section-title">
+                <h2>Active Tool Groups</h2>
+                <span class="section-desc" id="groups-count">Loading...</span>
+            </div>
+            <div class="groups-grid" id="groups-list">
+                <!-- Groups will be loaded here -->
+            </div>
+        </div>
+    </main>
+
+    <div class="action-bar-container">
+        <div class="action-bar">
+            <div class="stats-section">
+                <div class="stat-item">
+                    <span class="stat-label">Active Mode</span>
+                    <span class="stat-val" id="active-mode-label">Preset: <span>Default</span></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Est. Token Cost (System Prompt)</span>
+                    <span class="stat-val" id="est-tokens-label">0 <span>Tokens</span></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Selected Groups</span>
+                    <span class="stat-val" id="selected-groups-label">0 / 0</span>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn-secondary" onclick="resetToAll()">Select All (Default)</button>
+                <button class="btn-primary" onclick="saveConfiguration()">Save Config</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 0C4.48 0 0 4.48 0 10C0 15.52 4.48 20 10 20C15.52 20 20 15.52 20 10C20 4.48 15.52 0 10 0ZM8 15L3 10L4.41 8.59L8 12.17L15.59 4.58L17 6L8 15Z" fill="white"/>
+        </svg>
+        <span id="toast-message">Configuration saved!</span>
+    </div>
+
+    <script>
+        const CORE_GROUPS = new Set(["registry", "toolsets", "skill-runtime"]);
+        const TOKEN_PER_TOOL = 350; // Estimated tokens per registered tool definition
+
+        let toolsData = [];
+        let toolsetsData = [];
+        let activeConfig = { active_toolset: "", active_groups: [] };
+
+        // DOM elements
+        const loader = document.getElementById('loader');
+        const toolsetsList = document.getElementById('toolsets-list');
+        const groupsList = document.getElementById('groups-list');
+        const groupsCount = document.getElementById('groups-count');
+        const activeModeLabel = document.getElementById('active-mode-label');
+        const estTokensLabel = document.getElementById('est-tokens-label');
+        const selectedGroupsLabel = document.getElementById('selected-groups-label');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toast-message');
+
+        // Fetch state from Python server
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                toolsData = data.tools || [];
+                toolsetsData = data.toolsets || [];
+                activeConfig = data.active_config || { active_toolset: "", active_groups: [] };
+
+                renderDashboard();
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 500);
+            } catch (error) {
+                console.error("Error fetching system status:", error);
+                alert("Failed to connect to the MCP Portal backend server.");
+            }
+        }
+
+        function renderDashboard() {
+            // Render Toolsets (Left Column)
+            toolsetsList.innerHTML = '';
+            
+            // Add a "Custom Configuration" virtual card
+            const isCustom = !activeConfig.active_toolset && activeConfig.active_groups.length > 0;
+            const isAll = !activeConfig.active_toolset && activeConfig.active_groups.length === 0;
+
+            toolsetsData.forEach(ts => {
+                const isActive = activeConfig.active_toolset === ts.id;
+                const totalTools = countToolsInGroups(ts.toolGroups);
+                const card = document.createElement('div');
+                card.className = `toolset-card ${isActive ? 'active' : ''}`;
+                card.onclick = () => selectPresetToolset(ts.id);
+                card.innerHTML = `
+                    <div class="toolset-header">
+                        <span class="toolset-title">${ts.title}</span>
+                        <span class="toolset-badge">${totalTools} tools</span>
+                    </div>
+                    <p class="toolset-desc">${ts.description}</p>
+                `;
+                toolsetsList.appendChild(card);
+            });
+
+            // Render Tool Groups (Right Column)
+            groupsList.innerHTML = '';
+            groupsCount.textContent = `${toolsData.length} available groups`;
+
+            let selectedCount = 0;
+
+            toolsData.forEach(group => {
+                const isCore = CORE_GROUPS.has(group.id);
+                let isChecked = isCore;
+
+                if (!isAll) {
+                    if (activeConfig.active_toolset) {
+                        const activeToolset = toolsetsData.find(ts => ts.id === activeConfig.active_toolset);
+                        if (activeToolset) {
+                            isChecked = activeToolset.toolGroups.includes(group.id) || isCore;
+                        }
+                    } else {
+                        isChecked = activeConfig.active_groups.includes(group.id) || isCore;
+                    }
+                } else {
+                    isChecked = true; // "Select All" default state
+                }
+
+                if (isChecked) selectedCount++;
+
+                const card = document.createElement('div');
+                card.className = `group-card ${isChecked ? 'selected' : ''} ${isCore ? 'core-group' : ''}`;
+                
+                const toolsListHtml = group.tools && group.tools.length > 0
+                    ? `<div class="group-tools-list">
+                         <div class="group-tools-title">Exposes:</div>
+                         <div class="tools-tags">
+                            ${group.tools.map(t => `<span class="tool-tag">${t}</span>`).join('')}
+                         </div>
+                       </div>`
+                    : '';
+
+                card.innerHTML = `
+                    <div class="group-header">
+                        <div class="group-info">
+                            <span class="group-name">${group.title || group.id}</span>
+                            <p class="group-desc">${group.description}</p>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="chk-${group.id}" 
+                                   ${isChecked ? 'checked' : ''} 
+                                   ${isCore ? 'disabled' : ''} 
+                                   onchange="toggleGroup('${group.id}')">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    ${toolsListHtml}
+                `;
+                groupsList.appendChild(card);
+            });
+
+            updateStatusBar(selectedCount, isAll, isCustom);
+        }
+
+        function countToolsInGroups(groupNames) {
+            let count = 0;
+            groupNames.forEach(gn => {
+                const group = toolsData.find(g => g.id === gn);
+                if (group && group.tools) {
+                    count += group.tools.length;
+                }
+            });
+            return count;
+        }
+
+        function updateStatusBar(selectedCount, isAll, isCustom) {
+            // Mode text
+            if (isAll) {
+                activeModeLabel.innerHTML = 'All Tools <span>(Full Load)</span>';
+            } else if (activeConfig.active_toolset) {
+                const ts = toolsetsData.find(t => t.id === activeConfig.active_toolset);
+                activeModeLabel.innerHTML = `Preset: <span>${ts ? ts.title : activeConfig.active_toolset}</span>`;
+            } else {
+                activeModeLabel.innerHTML = 'Mode: <span>Custom</span>';
+            }
+
+            // Estimate total tools active
+            let totalActiveTools = 0;
+            toolsData.forEach(group => {
+                const isCore = CORE_GROUPS.has(group.id);
+                let isActive = isCore;
+                if (isAll) {
+                    isActive = true;
+                } else if (activeConfig.active_toolset) {
+                    const activeToolset = toolsetsData.find(ts => ts.id === activeConfig.active_toolset);
+                    isActive = (activeToolset && activeToolset.toolGroups.includes(group.id)) || isCore;
+                } else {
+                    isActive = activeConfig.active_groups.includes(group.id) || isCore;
+                }
+
+                if (isActive && group.tools) {
+                    totalActiveTools += group.tools.length;
+                }
+            });
+
+            const estimatedTokens = totalActiveTools * TOKEN_PER_TOOL;
+            estTokensLabel.innerHTML = `${estimatedTokens.toLocaleString()} <span>Tokens (~${totalActiveTools} tools)</span>`;
+            selectedGroupsLabel.textContent = `${selectedCount} / ${toolsData.length} groups`;
+        }
+
+        function selectPresetToolset(toolsetId) {
+            activeConfig.active_toolset = toolsetId;
+            activeConfig.active_groups = [];
+            renderDashboard();
+        }
+
+        function toggleGroup(groupId) {
+            // If toggling an individual group, we automatically drop out of preset mode
+            if (activeConfig.active_toolset) {
+                // Initialize custom groups array with current preset groups
+                const ts = toolsetsData.find(t => t.id === activeConfig.active_toolset);
+                const presetGroups = ts ? [...ts.toolGroups] : [];
+                activeConfig.active_groups = [...new Set([...presetGroups, ...CORE_GROUPS])];
+                activeConfig.active_toolset = ""; // Deselect preset
+            } else if (activeConfig.active_groups.length === 0) {
+                // If previously in "All" mode, copy all group IDs except toggled off one
+                activeConfig.active_groups = toolsData.map(g => g.id);
+            }
+
+            const checkbox = document.getElementById(`chk-${groupId}`);
+            if (checkbox.checked) {
+                if (!activeConfig.active_groups.includes(groupId)) {
+                    activeConfig.active_groups.push(groupId);
+                }
+            } else {
+                activeConfig.active_groups = activeConfig.active_groups.filter(g => g !== groupId);
+            }
+
+            renderDashboard();
+        }
+
+        function resetToAll() {
+            activeConfig.active_toolset = "";
+            activeConfig.active_groups = [];
+            renderDashboard();
+        }
+
+        async function saveConfiguration() {
+            try {
+                const response = await fetch('/api/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(activeConfig)
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    showToast(result.message || "Configuration saved successfully.");
+                } else {
+                    alert("Failed to save configuration: " + result.error);
+                }
+            } catch (error) {
+                console.error("Error saving configuration:", error);
+                alert("Failed to communicate with backend to save configuration.");
+            }
+        }
+
+        function showToast(message) {
+            toastMessage.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', fetchStatus);
+    </script>
+</body>
+</html>

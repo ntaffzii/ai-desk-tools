@@ -22,3 +22,9 @@ efficiency_report_*.md
 
 # model
 models/
+
+# Local Config, Logs, and Scratch files
+config/active_config.json
+logs/
+tests/_ops_fixture/.backups/
+tests/scratch/
