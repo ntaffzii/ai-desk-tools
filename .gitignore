@@ -27,4 +27,4 @@ models/
 config/active_config.json
 logs/
 tests/_ops_fixture/.backups/
-tests/scratch/
+tests/scratch/
