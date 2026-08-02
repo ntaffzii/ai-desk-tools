@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+from collections import Counter
 from pathlib import Path
 
 from security import REPO_ROOT, audit
@@ -21,8 +23,78 @@ def _read_json(path: Path) -> list | dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _token_list(text: str) -> list[str]:
+    return [token.lower() for token in re.findall(r"[A-Za-z0-9_ก-๙-]+", text) if len(token) >= 2]
+
+
 def _tokens(text: str) -> set[str]:
-    return {token.lower() for token in re.findall(r"[A-Za-z0-9_ก-๙-]+", text) if len(token) >= 2}
+    return set(_token_list(text))
+
+
+def _term_freq(tokens: list[str]) -> dict[str, float]:
+    if not tokens:
+        return {}
+    counts = Counter(tokens)
+    total = len(tokens)
+    return {term: count / total for term, count in counts.items()}
+
+
+def _build_idf(doc_token_lists: list[list[str]]) -> dict[str, float]:
+    """Inverse document frequency over a corpus: rare/distinctive terms get a
+    higher weight than terms that appear in most documents (e.g. common
+    words shared across many skill descriptions)."""
+    n_docs = len(doc_token_lists)
+    doc_freq: Counter[str] = Counter()
+    for tokens in doc_token_lists:
+        for term in set(tokens):
+            doc_freq[term] += 1
+    return {term: math.log((n_docs + 1) / (count + 1)) + 1.0 for term, count in doc_freq.items()}
+
+
+def _tfidf_vector(tokens: list[str], idf: dict[str, float], default_idf: float) -> dict[str, float]:
+    tf = _term_freq(tokens)
+    return {term: freq * idf.get(term, default_idf) for term, freq in tf.items()}
+
+
+def _cosine_similarity(vec_a: dict[str, float], vec_b: dict[str, float]) -> float:
+    common = set(vec_a) & set(vec_b)
+    if not common:
+        return 0.0
+    dot = sum(vec_a[term] * vec_b[term] for term in common)
+    norm_a = math.sqrt(sum(value * value for value in vec_a.values()))
+    norm_b = math.sqrt(sum(value * value for value in vec_b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _cosine_score_batch(query: str, haystacks: list[str]) -> list[float]:
+    """TF-IDF cosine similarity between `query` and each haystack, using the
+    haystacks themselves as the corpus for IDF weighting.
+
+    This is a dependency-free upgrade over plain token-overlap counting:
+    rare, distinctive words (a skill's specific domain terms) weigh more
+    than common words shared across most descriptions, and the score is
+    normalized by vector length instead of growing with haystack size.
+
+    It is still a lexical (shared-token) similarity, not a true semantic
+    embedding -- it will not match a query and a description that share no
+    literal tokens even if they mean the same thing (e.g. a synonym or a
+    cross-language paraphrase with no shared word). See
+    docs/SKILL_RUNTIME_FLOW.md for that tradeoff and the upgrade path to a
+    real embedding model if closer semantic matching is needed.
+    """
+    doc_token_lists = [_token_list(text) for text in haystacks]
+    idf = _build_idf(doc_token_lists)
+    default_idf = math.log(len(doc_token_lists) + 1) + 1.0
+
+    query_vector = _tfidf_vector(_token_list(query), idf, default_idf)
+
+    scores = []
+    for tokens in doc_token_lists:
+        doc_vector = _tfidf_vector(tokens, idf, default_idf)
+        scores.append(round(_cosine_similarity(query_vector, doc_vector), 4))
+    return scores
 
 
 def _parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -84,9 +156,9 @@ def _score(query: str, haystack: str, exact_bonus: int = 5) -> int:
 
 
 def _recommend_workflows(task: str, limit: int) -> list[dict]:
-    recommendations = []
-    for workflow in _read_json(WORKFLOWS_REGISTRY):
-        haystack = " ".join(
+    workflows = _read_json(WORKFLOWS_REGISTRY)
+    haystacks = [
+        " ".join(
             [
                 workflow.get("id", ""),
                 workflow.get("title", ""),
@@ -94,9 +166,13 @@ def _recommend_workflows(task: str, limit: int) -> list[dict]:
                 " ".join(workflow.get("recommendedSkills", [])),
             ]
         )
-        score = _score(task, haystack)
-        if score:
-            recommendations.append({**workflow, "score": score})
+        for workflow in workflows
+    ]
+    scores = _cosine_score_batch(task, haystacks)
+
+    recommendations = [
+        {**workflow, "score": score} for workflow, score in zip(workflows, scores) if score > 0
+    ]
     recommendations.sort(key=lambda item: (-item["score"], item.get("id", "")))
     return recommendations[: max(1, min(int(limit), 10))]
 
@@ -109,14 +185,16 @@ def _recommend_skills(task: str, workflow_ids: list[str], limit: int) -> list[di
             for step in workflow.get("steps", []):
                 workflow_skill_hints.update(step.get("recommendedSkills", []))
 
+    skills = _skill_index()
+    haystacks = [" ".join([skill["name"], skill["description"], skill["path"]]) for skill in skills]
+    scores = _cosine_score_batch(task, haystacks)
+
     recommendations = []
-    for skill in _skill_index():
-        haystack = " ".join([skill["name"], skill["description"], skill["path"]])
-        score = _score(task, haystack)
+    for skill, score in zip(skills, scores):
         if skill["name"] in workflow_skill_hints:
-            score += 6
-        if score:
-            recommendations.append({**skill, "score": score})
+            score += 0.6  # structural signal (skill is part of an already-matched workflow), not text similarity
+        if score > 0:
+            recommendations.append({**skill, "score": round(score, 4)})
     recommendations.sort(key=lambda item: (-item["score"], item.get("name", "")))
     return recommendations[: max(1, min(int(limit), 12))]
 
@@ -124,17 +202,30 @@ def _recommend_skills(task: str, workflow_ids: list[str], limit: int) -> list[di
 def _recommend_toolsets(task: str, workflow_ids: list[str], limit: int) -> list[dict]:
     workflow_set = set(workflow_ids)
     primary_workflow = workflow_ids[0] if workflow_ids else ""
+
+    toolsets = _read_json(TOOLSETS_REGISTRY)
+    haystacks = [
+        " ".join(
+            [
+                toolset.get("id", ""),
+                toolset.get("title", ""),
+                toolset.get("description", ""),
+                " ".join(toolset.get("toolGroups", [])),
+            ]
+        )
+        for toolset in toolsets
+    ]
+    scores = _cosine_score_batch(task, haystacks)
+
     recommendations = []
-    for toolset in _read_json(TOOLSETS_REGISTRY):
-        haystack = " ".join([toolset.get("id", ""), toolset.get("title", ""), toolset.get("description", ""), " ".join(toolset.get("toolGroups", []))])
-        score = _score(task, haystack)
+    for toolset, score in zip(toolsets, scores):
         recommended_workflows = set(toolset.get("recommendedWorkflows", []))
         if primary_workflow and primary_workflow in recommended_workflows:
-            score += 12
+            score += 1.2  # structural signal: toolset is the primary matched workflow's own recommendation
         elif workflow_set & recommended_workflows:
-            score += 4
-        if score:
-            recommendations.append({**toolset, "score": score})
+            score += 0.4
+        if score > 0:
+            recommendations.append({**toolset, "score": round(score, 4)})
     recommendations.sort(key=lambda item: (-item["score"], item.get("id", "")))
     return recommendations[: max(1, min(int(limit), 8))]
 

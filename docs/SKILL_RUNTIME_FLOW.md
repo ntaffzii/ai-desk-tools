@@ -137,6 +137,16 @@ Build today's plan from Notion, Obsidian, calendar, inbox, chat, memory, and ope
 Draft only. Do not send or apply anything.
 ```
 
+## Scoring: TF-IDF cosine similarity
+
+`recommend_workflows` / `recommend_skills` / `recommend_toolsets` rank candidates using TF-IDF cosine similarity between the task description and each item's `name + description (+ tags)` text, computed fresh over the candidate pool on every call (`_cosine_score_batch` in `tools/skill_runtime.py`). This replaced a plain token-overlap counter:
+
+- **IDF weighting**: a distinctive word shared with only a few items (e.g. "promptpay", "withholding") counts for more than a word shared with most items (e.g. "use", "skill", "task").
+- **Cosine normalization**: score reflects vector *direction* (proportion of shared meaningful terms), not raw count — a long, mostly-irrelevant description no longer outscores a short, precisely relevant one just by sharing a few common words.
+- Structural bonuses (a skill already named by a matched workflow, a toolset already recommended by the primary matched workflow) are added **on top of** the cosine score, not blended into it — see `_recommend_skills`/`_recommend_toolsets`.
+
+**What this is not**: still a *lexical* (shared-token) similarity, no dependencies, runs offline. It will not match a query and a description that mean the same thing but share no literal token (a synonym, a cross-language paraphrase, an abbreviation the tokenizer doesn't recognize). If that turns out to matter in practice, the upgrade path is a real embedding model (e.g. a local `sentence-transformers` model, or an Ollama embedding endpoint) swapped in for `_cosine_score_batch` — same call signature (`query, haystacks -> list[float]`), different vector source.
+
 ## Safety
 
 - `skill-runtime` อ่านเฉพาะไฟล์ใน repo

@@ -80,5 +80,56 @@ class SkillRuntimeTests(unittest.TestCase):
         self.assertIn("design-frontend", ids[:2])
 
 
+class TfidfScoringTests(unittest.TestCase):
+    """Direct unit coverage for the TF-IDF cosine-similarity scorer, not just
+    end-to-end routing behavior -- these pin down the math itself."""
+
+    def test_cosine_similarity_of_identical_vectors_is_one(self):
+        vec = {"apple": 0.5, "banana": 0.2}
+        self.assertAlmostEqual(skill_runtime._cosine_similarity(vec, vec), 1.0)
+
+    def test_cosine_similarity_with_no_shared_terms_is_zero(self):
+        vec_a = {"apple": 1.0}
+        vec_b = {"banana": 1.0}
+        self.assertEqual(skill_runtime._cosine_similarity(vec_a, vec_b), 0.0)
+
+    def test_cosine_similarity_handles_empty_vectors(self):
+        self.assertEqual(skill_runtime._cosine_similarity({}, {"apple": 1.0}), 0.0)
+        self.assertEqual(skill_runtime._cosine_similarity({}, {}), 0.0)
+
+    def test_idf_weighs_rare_terms_higher_than_common_terms(self):
+        # "common" appears in all 3 documents; "rare" appears in only 1.
+        docs = [
+            ["common", "rare", "widget"],
+            ["common", "gadget"],
+            ["common", "sprocket"],
+        ]
+        idf = skill_runtime._build_idf(docs)
+        self.assertGreater(idf["rare"], idf["common"])
+
+    def test_score_does_not_simply_grow_with_haystack_length(self):
+        # A short, highly focused haystack should not lose to a long haystack
+        # that only shares generic/common words with the query -- this is
+        # the specific failure mode the old raw-token-overlap scorer had.
+        query = "thai invoice vat withholding tax"
+        haystacks = [
+            "thai invoice vat withholding tax revenue code",  # short, highly relevant
+            "generic task management report summary review workflow document "
+            "planning organize schedule track update status notes",  # long, no overlap
+        ]
+        scores = skill_runtime._cosine_score_batch(query, haystacks)
+        self.assertGreater(scores[0], scores[1])
+        self.assertEqual(scores[1], 0.0)
+
+    def test_distinctive_shared_term_scores_higher_than_only_common_terms(self):
+        query = "promptpay qr checksum validation"
+        haystacks = [
+            "thai id validate promptpay qr checksum",  # shares the distinctive terms
+            "use this skill for any task involving",  # shares only filler words (all below the 2-char min or common)
+        ]
+        scores = skill_runtime._cosine_score_batch(query, haystacks)
+        self.assertGreater(scores[0], scores[1])
+
+
 if __name__ == "__main__":
     unittest.main()
